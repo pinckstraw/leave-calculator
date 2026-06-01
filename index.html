@@ -162,8 +162,12 @@
   <div class="card">
     <div class="card-title"><span>➕</span> 新增請假</div>
     <div class="form-row">
-      <label class="form-label">請假日期</label>
-      <input type="date" class="form-input" id="leave-date">
+      <label class="form-label">開始日期</label>
+      <input type="date" class="form-input" id="leave-start-date">
+    </div>
+    <div class="form-row">
+      <label class="form-label">結束日期（單天請假免填）</label>
+      <input type="date" class="form-input" id="leave-end-date">
     </div>
     <div class="form-row">
       <label class="form-label">請假時數（最少 0.5 小時）</label>
@@ -222,6 +226,13 @@
         <option value="7.5">7.5 小時</option>
         <option value="8" selected>8 小時</option>
         <option value="9">9 小時</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label class="form-label">特休計算制度</label>
+      <select class="form-input" id="s-leave-type">
+        <option value="anniversary">週年制（依到職日）</option>
+        <option value="calendar">曆年制（每年 1/1 重新起算）</option>
       </select>
     </div>
     <button class="btn btn-secondary" onclick="saveSettings()" style="margin-bottom:0">儲存設定</button>
@@ -324,9 +335,8 @@ function loadLocalBackup(){try{const s=localStorage.getItem('lc_backup');return 
 // ── DATA API ──────────────────────────────────────────────────────────────────
 function getData(){
   if(_data) return _data;
-  return loadLocalBackup()||{name:'員工',hireDate:'2020-11-02',dailyHours:8,loaPeriods:[],leaves:[]};
+  return loadLocalBackup()||{name:'員工',hireDate:'2020-11-02',dailyHours:8,leaveType:'anniversary',loaPeriods:[],leaves:[]};
 }
-
 async function init_loadData(){
   showLoading('從 Google Sheets 載入資料…');
   setSyncBadge('busy','⏳ 載入中');
@@ -384,16 +394,50 @@ function getPeriodStart(adjStart,today){
   while(true){let n=new Date(ps);n.setFullYear(n.getFullYear()+1);if(n>today)break;ps=n;}
   return ps;
 }
+function getCalendarYearDays(adjStart, targetYear) {
+  const h = new Date(adjStart);
+  const y = targetYear;
+  const y0 = h.getFullYear();
+  const thisAnnivYears = y - y0;
+  const prevAnnivYears = y - 1 - y0;
+  const m = h.getMonth(); 
+
+  if (thisAnnivYears <= 0) return 0;
+  
+  let days = 0;
+  if (thisAnnivYears === 1) {
+     const halfYear = new Date(h); halfYear.setMonth(halfYear.getMonth() + 6);
+     if(halfYear.getFullYear() === y) days += 3; 
+     days += 7 * ((12 - m) / 12);
+  } else {
+     const q1 = getAnnualLeaveDays(prevAnnivYears);
+     const q2 = getAnnualLeaveDays(thisAnnivYears);
+     days = q1 * (m / 12) + q2 * ((12 - m) / 12);
+  }
+  return Math.round(days * 10) / 10;
+}
+
 function calcBalance(){
   const d=getData();
   const today=new Date();today.setHours(0,0,0,0);
   const adj=getAdjustedStartDate(d.hireDate,d.loaPeriods);
   if(isNaN(adj)) return null;
+  
   const yearsNow=getYears(adj,today);
-  if(yearsNow<0.5) return{days:0,hours:0,usedDays:0,usedExtraHours:0,usedHours:0,totalDays:0,periodStart:null,periodEnd:null,yearsNow,adj,dailyHours:d.dailyHours};
-  const ps=getPeriodStart(adj,today);
-  const pe=new Date(ps);pe.setFullYear(pe.getFullYear()+1);pe.setDate(pe.getDate()-1);
-  const totalDays=getAnnualLeaveDays(getYears(adj,ps));
+  let ps, pe, totalDays;
+
+  // 判斷是曆年制還是週年制
+  if (d.leaveType === 'calendar') {
+     ps = new Date(today.getFullYear(), 0, 1);
+     pe = new Date(today.getFullYear(), 11, 31);
+     totalDays = getCalendarYearDays(adj, today.getFullYear());
+  } else {
+     if(yearsNow<0.5) return{days:0,hours:0,usedDays:0,usedExtraHours:0,usedHours:0,totalDays:0,periodStart:null,periodEnd:null,yearsNow,adj,dailyHours:d.dailyHours};
+     ps=getPeriodStart(adj,today);
+     pe=new Date(ps);pe.setFullYear(pe.getFullYear()+1);pe.setDate(pe.getDate()-1);
+     totalDays=getAnnualLeaveDays(getYears(adj,ps));
+  }
+
   const usedHours=d.leaves.filter(l=>{const ld=new Date(l.date);return ld>=ps&&ld<=pe;}).reduce((s,l)=>s+parseFloat(l.hours),0);
   const totalHours=totalDays*d.dailyHours;
   const remain=Math.max(0,totalHours-usedHours);
@@ -468,6 +512,8 @@ function fillSettingsForm(){
   document.getElementById('s-name').value=d.name!=='員工'?d.name:'';
   document.getElementById('s-hire-date').value=d.hireDate;
   document.getElementById('s-daily-hours').value=d.dailyHours;
+  const typeEl = document.getElementById('s-leave-type');
+  if(typeEl) typeEl.value=d.leaveType||'anniversary';
 }
 
 // ── LOA FORM ──────────────────────────────────────────────────────────────────
@@ -553,21 +599,61 @@ function readLoaFromForm(){
 
 // ── ACTIONS ───────────────────────────────────────────────────────────────────
 async function addLeave(){
-  const date=document.getElementById('leave-date').value;
-  const hours=parseFloat(document.getElementById('leave-hours').value);
-  const note=document.getElementById('leave-note').value.trim();
-  if(!date){showToast('請選擇請假日期');return;}
-  const d=getData();
-  d.leaves.push({id:Date.now(),date,hours,note});
-  _data=d;saveLocalBackup(d);render();
-  showToast('✅ 已新增，同步中…');
-  document.getElementById('leave-date').value=todayStr();
-  document.getElementById('leave-note').value='';
+  const sDate = document.getElementById('leave-start-date').value;
+  // 如果沒有填結束日期，就預設等於開始日期（單天請假）
+  const eDate = document.getElementById('leave-end-date').value || sDate; 
+  const hours = parseFloat(document.getElementById('leave-hours').value);
+  const note = document.getElementById('leave-note').value.trim();
+
+  if(!sDate){showToast('請選擇開始日期');return;}
+  
+  let start = new Date(sDate);
+  let end = new Date(eDate);
+  if(end < start) { showToast('結束日期不能早於開始日期'); return; }
+
+  const d = getData();
+  let addedCount = 0;
+  let currentDate = new Date(start);
+
+  // 迴圈跑過區間內的每一天
+  while(currentDate <= end) {
+    const dayOfWeek = currentDate.getDay();
+    // 自動跳過六日 (0是週日，6是週六)
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+       const dateStr = currentDate.getFullYear() + '-' + 
+                       (currentDate.getMonth()+1).toString().padStart(2, '0') + '-' + 
+                       currentDate.getDate().toString().padStart(2, '0');
+       // 寫入陣列，利用 addedCount 微調 id 確保不會重複
+       d.leaves.push({id: Date.now() + addedCount, date: dateStr, hours, note});
+       addedCount++;
+    }
+    // 日期加一天
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  
+  if(addedCount === 0) { showToast('選取的區間都是六日喔！'); return; }
+
+  _data = d; saveLocalBackup(d); render();
+  showToast(`✅ 已新增 ${addedCount} 筆，同步中…`);
+  
+  // 清空輸入框
+  document.getElementById('leave-start-date').value = todayStr();
+  document.getElementById('leave-end-date').value = '';
+  document.getElementById('leave-note').value = '';
   switchTab('home');
-  showLoading('儲存到 Google Sheets…');setSyncBadge('busy','⏳ 儲存中');
-  try{await saveLeavesToSheets(d.leaves);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('☁️ 已儲存至 Google Sheets');}
-  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast('⚠️ 雲端同步失敗，本機已儲存');}
-  finally{hideLoading();}
+  
+  showLoading('儲存到 Google Sheets…'); setSyncBadge('busy', '⏳ 儲存中');
+  try {
+    await saveLeavesToSheets(d.leaves);
+    setSyncBadge('ok', '✅ 已同步');
+    updateLastSyncTime();
+    showToast('☁️ 已儲存至 Google Sheets');
+  } catch(e) {
+    setSyncBadge('err', '⚠️ 同步失敗');
+    showToast('⚠️ 雲端同步失敗，本機已儲存');
+  } finally {
+    hideLoading();
+  }
 }
 
 async function deleteLeave(id){
@@ -593,9 +679,11 @@ async function saveSettings(){
   const name=document.getElementById('s-name').value.trim();
   const hire=document.getElementById('s-hire-date').value;
   const daily=document.getElementById('s-daily-hours').value;
+  const typeEl=document.getElementById('s-leave-type');
   if(!hire){showToast('請填寫到職日');return;}
   const d=getData();
   d.name=name||d.name;d.hireDate=hire;d.dailyHours=parseFloat(daily);
+  if(typeEl) d.leaveType=typeEl.value;
   _data=d;saveLocalBackup(d);render();
   showLoading('儲存設定中…');setSyncBadge('busy','⏳ 儲存中');
   try{await saveSettingsToSheets(d);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('✅ 設定已儲存');}
@@ -630,7 +718,8 @@ function formatDate(d){if(!d||isNaN(new Date(d)))return'—';const dt=new Date(d
 function todayStr(){const t=new Date();return t.getFullYear()+'-'+(t.getMonth()+1).toString().padStart(2,'0')+'-'+t.getDate().toString().padStart(2,'0');}
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
-document.getElementById('leave-date').value=todayStr();
+document.getElementById('leave-start-date').value=todayStr();
+document.getElementById('leave-end-date').value='';
 const _backup=loadLocalBackup();
 if(_backup){_data=_backup;render();fillSettingsForm();renderLoaForm();}
 init_loadData();

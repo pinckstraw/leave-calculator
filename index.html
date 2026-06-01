@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>特休計算器</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --y1:#FFEA6C;--y2:#FFFBA7;--p1:#FFA6FB;--p2:#FF61F8;
+    --bg:#fef9ff;--text:#2a1a2e;--sub:#7a5a80;
+    --border:rgba(255,97,248,0.15);--shadow:0 4px 24px rgba(255,97,248,0.12);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:80px;}
+
+  /* LOADING */
+  #loading-overlay{display:none;position:fixed;inset:0;z-index:999;background:rgba(254,249,255,0.9);backdrop-filter:blur(6px);flex-direction:column;align-items:center;justify-content:center;gap:14px;}
+  .spinner{width:44px;height:44px;border-radius:50%;border:4px solid var(--p1);border-top-color:var(--p2);animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loading-msg{font-size:14px;font-weight:600;color:var(--sub);}
+
+  /* HEADER */
+  .header{background:linear-gradient(135deg,var(--y1) 0%,var(--p1) 100%);padding:48px 20px 24px;position:relative;overflow:hidden;}
+  .header::before{content:'';position:absolute;top:-40px;right:-40px;width:160px;height:160px;background:rgba(255,255,255,0.25);border-radius:50%;}
+  .header::after{content:'';position:absolute;bottom:-30px;left:20px;width:100px;height:100px;background:rgba(255,97,248,0.15);border-radius:50%;}
+  .header-title{font-size:13px;font-weight:500;letter-spacing:3px;color:var(--text);opacity:.6;margin-bottom:6px;}
+  .header-name{font-size:26px;font-weight:900;color:var(--text);letter-spacing:-.5px;}
+  .header-sub{font-size:12px;color:var(--text);opacity:.55;margin-top:4px;}
+  .sync-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;margin-top:8px;position:relative;z-index:1;}
+  .sync-badge.ok{background:rgba(255,255,255,0.6);color:#2a7a2a;}
+  .sync-badge.err{background:rgba(255,80,80,0.15);color:#cc2222;}
+  .sync-badge.busy{background:rgba(255,255,255,0.4);color:var(--sub);}
+
+  /* BALANCE CARD */
+  .balance-card{margin:-16px 16px 0;background:white;border-radius:20px;padding:22px 22px 18px;box-shadow:0 8px 32px rgba(255,97,248,0.18);position:relative;z-index:10;}
+  .balance-label{font-size:11px;letter-spacing:2px;font-weight:500;color:var(--sub);text-transform:uppercase;margin-bottom:10px;}
+  .balance-main{display:flex;align-items:flex-end;gap:6px;}
+  .balance-days{font-size:52px;font-weight:900;line-height:1;background:linear-gradient(135deg,#c93df0,var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+  .balance-unit{font-size:16px;font-weight:700;color:var(--sub);margin-bottom:8px;}
+  .balance-hours-row{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;}
+  .balance-pill{background:linear-gradient(135deg,var(--y2),var(--y1));border-radius:30px;padding:5px 14px;font-size:12px;font-weight:700;color:#5a3a00;}
+  .balance-pill.purple{background:linear-gradient(135deg,var(--p1),var(--p2));color:white;}
+  .year-info{margin-top:12px;font-size:11px;color:var(--sub);opacity:.7;}
+
+  /* TABS */
+  .tabs{display:flex;margin:20px 16px 0;background:rgba(255,166,251,0.12);border-radius:14px;padding:4px;gap:2px;}
+  .tab{flex:1;padding:10px 0;text-align:center;font-size:13px;font-weight:600;color:var(--sub);border-radius:10px;cursor:pointer;transition:all .2s;border:none;background:transparent;font-family:'Noto Sans TC',sans-serif;}
+  .tab.active{background:white;color:var(--text);box-shadow:0 2px 12px rgba(255,97,248,0.15);}
+
+  /* SECTIONS */
+  .section{display:none;padding:16px 16px 0;animation:fadeUp .3s ease;}
+  .section.active{display:block;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+  /* CARD */
+  .card{background:white;border-radius:18px;padding:18px;box-shadow:var(--shadow);margin-bottom:14px;}
+  .card-title{font-size:12px;font-weight:700;letter-spacing:2px;color:var(--sub);text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;gap:6px;}
+  .card-title span{font-size:16px;}
+
+  /* FORM */
+  .form-row{margin-bottom:14px;}
+  .form-label{font-size:12px;font-weight:600;color:var(--sub);margin-bottom:6px;display:block;letter-spacing:.5px;}
+  .form-input{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:12px;font-size:15px;font-family:'Noto Sans TC',sans-serif;color:var(--text);background:#fdf7ff;outline:none;transition:border-color .2s,box-shadow .2s;-webkit-appearance:none;}
+  .form-input:focus{border-color:var(--p2);box-shadow:0 0 0 3px rgba(255,97,248,0.1);}
+  select.form-input{appearance:none;-webkit-appearance:none;}
+
+  /* LOA ITEMS */
+  .loa-item{background:#fdf4ff;border:1.5px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px;position:relative;}
+  .loa-item-title{font-size:11px;font-weight:700;color:var(--p2);letter-spacing:1px;margin-bottom:10px;text-transform:uppercase;}
+  .loa-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .loa-delete{position:absolute;top:10px;right:12px;background:none;border:none;font-size:18px;color:#cc3355;cursor:pointer;line-height:1;padding:2px;}
+  .loa-summary{font-size:12px;color:var(--sub);margin-top:6px;padding-top:6px;border-top:1px solid var(--border);}
+
+  /* BUTTONS */
+  .btn{width:100%;padding:15px;border:none;border-radius:14px;font-size:15px;font-weight:700;font-family:'Noto Sans TC',sans-serif;cursor:pointer;transition:transform .15s,box-shadow .15s;letter-spacing:.5px;}
+  .btn:active{transform:scale(0.97);}
+  .btn-primary{background:linear-gradient(135deg,var(--p1),var(--p2));color:white;box-shadow:0 4px 18px rgba(255,97,248,0.4);}
+  .btn-secondary{background:linear-gradient(135deg,var(--y2),var(--y1));color:#5a3a00;box-shadow:0 4px 18px rgba(255,234,108,0.4);}
+  .btn-add{background:rgba(255,166,251,0.12);color:var(--p2);border:1.5px dashed var(--p1);font-size:13px;padding:11px;border-radius:12px;}
+  .btn-danger{background:#fff0f0;color:#cc3355;font-size:13px;padding:10px;}
+
+  /* RECORDS */
+  .record-item{display:flex;align-items:center;padding:12px 0;border-bottom:1px solid rgba(255,166,251,0.15);}
+  .record-item:last-child{border-bottom:none;}
+  .record-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--p1),var(--p2));flex-shrink:0;margin-right:12px;}
+  .record-info{flex:1;}
+  .record-date{font-size:13px;font-weight:600;color:var(--text);}
+  .record-note{font-size:11px;color:var(--sub);margin-top:2px;}
+  .record-hours{font-size:14px;font-weight:700;color:var(--p2);}
+  .empty-state{text-align:center;padding:30px 0;color:var(--sub);font-size:13px;opacity:.6;}
+  .empty-state div{font-size:32px;margin-bottom:8px;}
+
+  /* YEAR ROW */
+  .year-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,166,251,0.12);font-size:13px;}
+  .year-row:last-child{border-bottom:none;}
+  .year-row .label{color:var(--sub);}
+  .year-row .value{font-weight:700;color:var(--text);}
+  
+  /* BOTTOM NAV */
+  .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:white;border-top:1px solid rgba(255,166,251,0.2);display:flex;padding:8px 0 env(safe-area-inset-bottom,8px);z-index:100;box-shadow:0 -4px 20px rgba(255,97,248,0.08);}
+  .nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px 0;cursor:pointer;border:none;background:transparent;font-family:'Noto Sans TC',sans-serif;}
+  .nav-icon{font-size:22px;}
+  .nav-label{font-size:10px;font-weight:600;color:var(--sub);}
+  .nav-item.active .nav-label{color:var(--p2);}
+
+  /* TOAST */
+  .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-80px);background:var(--text);color:white;padding:12px 22px;border-radius:30px;font-size:13px;font-weight:600;z-index:9999;transition:transform .35s cubic-bezier(0.34,1.56,0.64,1);white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,0.25);}
+  .toast.show{transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div id="loading-msg">與 Google Sheets 同步中…</div>
+</div>
+
+<div class="header">
+  <div class="header-title">ANNUAL LEAVE</div>
+  <div class="header-name" id="header-name">特休計算器</div>
+  <div class="header-sub" id="header-sub">載入中...</div>
+  <div class="sync-badge busy" id="sync-badge">⏳ 同步中</div>
+</div>
+
+<div class="balance-card">
+  <div class="balance-label">✦ 本年度剩餘特休</div>
+  <div class="balance-main">
+    <div class="balance-days" id="balance-days">—</div>
+    <div class="balance-unit">天</div>
+    <div class="balance-days" id="balance-extra-hours" style="font-size:36px;margin-left:8px"></div>
+    <div class="balance-unit" id="balance-extra-hours-label"></div>
+  </div>
+  <div class="balance-hours-row">
+    <div class="balance-pill" id="balance-total-pill">共 — 小時</div>
+    <div class="balance-pill purple" id="balance-used-pill">已用 — 天</div>
+  </div>
+  <div class="year-info" id="year-info">計算中...</div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('home')">首頁</button>
+  <button class="tab" onclick="switchTab('add')">新增請假</button>
+  <button class="tab" onclick="switchTab('records')">紀錄</button>
+  <button class="tab" onclick="switchTab('settings')">設定</button>
+</div>
+
+<!-- HOME -->
+<div class="section active" id="sec-home">
+  <div class="card">
+    <div class="card-title"><span>📋</span> 本年度概覽</div>
+    <div id="year-summary"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span>🗓️</span> 最近請假紀錄</div>
+    <div id="recent-records"></div>
+  </div>
+</div>
+
+<!-- ADD LEAVE -->
+<div class="section" id="sec-add">
+  <div class="card">
+    <div class="card-title"><span>➕</span> 新增請假</div>
+    <div class="form-row">
+      <label class="form-label">請假日期</label>
+      <input type="date" class="form-input" id="leave-date">
+    </div>
+    <div class="form-row">
+      <label class="form-label">請假時數（最少 0.5 小時）</label>
+      <select class="form-input" id="leave-hours">
+        <option value="0.5">0.5 小時</option>
+        <option value="1">1 小時</option>
+        <option value="1.5">1.5 小時</option>
+        <option value="2">2 小時</option>
+        <option value="2.5">2.5 小時</option>
+        <option value="3">3 小時</option>
+        <option value="3.5">3.5 小時</option>
+        <option value="4">4 小時（半天）</option>
+        <option value="4.5">4.5 小時</option>
+        <option value="5">5 小時</option>
+        <option value="5.5">5.5 小時</option>
+        <option value="6">6 小時</option>
+        <option value="6.5">6.5 小時</option>
+        <option value="7">7 小時</option>
+        <option value="7.5">7.5 小時</option>
+        <option value="8" selected>8 小時（全天）</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label class="form-label">備註（選填）</label>
+      <input type="text" class="form-input" id="leave-note" placeholder="例：家庭聚會、個人事務...">
+    </div>
+    <button class="btn btn-primary" onclick="addLeave()">確認新增</button>
+  </div>
+</div>
+
+<!-- RECORDS -->
+<div class="section" id="sec-records">
+  <div class="card">
+    <div class="card-title"><span>📂</span> 所有請假紀錄</div>
+    <div id="all-records"></div>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div class="section" id="sec-settings">
+  
+  <div class="card">
+    <div class="card-title"><span>⚙️</span> 基本設定</div>
+    <div class="form-row">
+      <label class="form-label">姓名</label>
+      <input type="text" class="form-input" id="s-name" placeholder="請輸入姓名">
+    </div>
+    <div class="form-row">
+      <label class="form-label">到職日</label>
+      <input type="date" class="form-input" id="s-hire-date">
+    </div>
+    <div class="form-row">
+      <label class="form-label">每日工時（小時）</label>
+      <select class="form-input" id="s-daily-hours">
+        <option value="7">7 小時</option>
+        <option value="7.5">7.5 小時</option>
+        <option value="8" selected>8 小時</option>
+        <option value="9">9 小時</option>
+      </select>
+    </div>
+    <button class="btn btn-secondary" onclick="saveSettings()" style="margin-bottom:0">儲存設定</button>
+  </div>
+
+  <!-- 多次留職停薪 -->
+  <div class="card">
+    <div class="card-title"><span>🛑</span> 留職停薪紀錄</div>
+    <div style="font-size:12px;color:var(--sub);margin-bottom:14px;line-height:1.6;">
+      支援多次留停（育嬰假分批請等）。每筆留停天數都會從年資中扣除，特休起算日自動順延。
+    </div>
+    <div id="loa-list"></div>
+    <button class="btn btn-add" onclick="addLoaItem()" style="margin-top:8px;margin-bottom:12px">＋ 新增一段留職停薪</button>
+    <button class="btn btn-secondary" onclick="saveLoa()">儲存留職停薪設定</button>
+    <div id="loa-total" style="margin-top:12px;font-size:12px;color:var(--sub);text-align:center;"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span>☁️</span> 雲端同步狀態</div>
+    <div class="year-row"><span class="label">儲存位置</span><span class="value" style="color:var(--p2)">Google Sheets</span></div>
+    <div class="year-row"><span class="label">最後同步</span><span class="value" id="last-sync-time">—</span></div>
+    <div class="year-row"><span class="label">試算表</span><span class="value"><a href="https://docs.google.com/spreadsheets/d/1ZfAc93Rcy2NjBcGRyWmELOqyVMLmgTkns-p7kGpmuIg" target="_blank" style="color:var(--p2);font-size:12px;">開啟 ↗</a></span></div>
+    <div style="margin-top:12px">
+      <button class="btn btn-secondary" onclick="forceSync()" style="font-size:13px;padding:11px">🔄 手動重新同步</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span>📊</span> 特休天數規則（勞基法）</div>
+    <div id="leave-rules"></div>
+  </div>
+
+  <div class="card" style="border:1.5px solid rgba(204,51,85,0.15)">
+    <div class="card-title"><span>🗑️</span> 危險操作</div>
+    <button class="btn btn-danger" onclick="clearAllLeaves()">清除所有請假紀錄</button>
+  </div>
+</div>
+
+<div class="bottom-nav">
+  <button class="nav-item active" id="nav-home" onclick="switchTab('home')"><div class="nav-icon">🏠</div><div class="nav-label">首頁</div></button>
+  <button class="nav-item" id="nav-add" onclick="switchTab('add')"><div class="nav-icon">➕</div><div class="nav-label">新增</div></button>
+  <button class="nav-item" id="nav-records" onclick="switchTab('records')"><div class="nav-icon">📋</div><div class="nav-label">紀錄</div></button>
+  <button class="nav-item" id="nav-settings" onclick="switchTab('settings')"><div class="nav-icon">⚙️</div><div class="nav-label">設定</div></button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const SHEET_ID = '1ZfAc93Rcy2NjBcGRyWmELOqyVMLmgTkns-p7kGpmuIg';
+const MCP_URL  = 'https://drivemcp.googleapis.com/mcp/v1';
+let _data = null;
+
+// ── LOADING ──────────────────────────────────────────────────────────────────
+function showLoading(msg='同步中…'){document.getElementById('loading-overlay').style.display='flex';document.getElementById('loading-msg').textContent=msg;}
+function hideLoading(){document.getElementById('loading-overlay').style.display='none';}
+function setSyncBadge(state,msg){const el=document.getElementById('sync-badge');el.className='sync-badge '+state;el.textContent=msg;}
+function updateLastSyncTime(){const n=new Date();const s=n.getHours().toString().padStart(2,'0')+':'+n.getMinutes().toString().padStart(2,'0');const el=document.getElementById('last-sync-time');if(el)el.textContent=s;}
+
+// ── GOOGLE APPS SCRIPT API ───────────────────────────────────────────────────
+// 👇 1. 請把引號內的文字，替換成你剛剛在 Apps Script 發布得到的「網頁應用程式 URL」
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzwkZMJ29FjKk0Ybtvj6YjMiN2oBuvAbexWhh_Vlx35ne8h1h6on2evqxPn2hd4n48/exec';
+
+// 動態取得使用者名稱：從網頁的本機記憶中抓取你設定的名字
+function getUserName() {
+  if (typeof _data !== 'undefined' && _data && _data.name && _data.name !== '員工') {
+    return _data.name;
+  }
+  const backup = loadLocalBackup();
+  if (backup && backup.name && backup.name !== '員工') {
+    return backup.name;
+  }
+  return ''; // 如果都沒填，就傳送空值
+}
+
+async function loadFromSheets() {
+  const user = getUserName();
+  // 網址後面自動帶上名字，例如：?user=政樵
+  const res = await fetch(`${GAS_URL}?user=${encodeURIComponent(user)}`);
+  if (!res.ok) throw new Error('API 讀取失敗');
+  return await res.json();
+}
+
+async function saveSettingsToSheets(d) {
+  // 儲存設定時，直接用設定表單填寫的名字 (d.name)
+  await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveSettings', data: d, user: d.name }) });
+}
+
+async function saveLoaToSheets(loaPeriods) {
+  await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveLoa', data: loaPeriods, user: getUserName() }) });
+}
+
+async function saveLeavesToSheets(leaves) {
+  await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveLeaves', data: leaves, user: getUserName() }) });
+}
+
+// ── LOCAL BACKUP ──────────────────────────────────────────────────────────────
+function saveLocalBackup(d){try{localStorage.setItem('lc_backup',JSON.stringify(d));}catch(e){}}
+function loadLocalBackup(){try{const s=localStorage.getItem('lc_backup');return s?JSON.parse(s):null;}catch(e){return null;}}
+
+// ── DATA API ──────────────────────────────────────────────────────────────────
+function getData(){
+  if(_data) return _data;
+  return loadLocalBackup()||{name:'員工',hireDate:'2020-11-02',dailyHours:8,loaPeriods:[],leaves:[]};
+}
+
+async function init_loadData(){
+  showLoading('從 Google Sheets 載入資料…');
+  setSyncBadge('busy','⏳ 載入中');
+  try{
+    _data = await loadFromSheets();
+    // 向下相容：舊格式 loaStart/loaEnd → 轉成 loaPeriods
+    if(!_data.loaPeriods && (_data.loaStart||_data.loaEnd)){
+      _data.loaPeriods = [{id:1,start:_data.loaStart||'',end:_data.loaEnd||'',note:''}];
+    }
+    if(!_data.loaPeriods) _data.loaPeriods=[];
+    saveLocalBackup(_data);
+    setSyncBadge('ok','✅ 已同步');
+    updateLastSyncTime();
+  }catch(e){
+    console.error(e);
+    const backup=loadLocalBackup();
+    if(backup){_data=backup;setSyncBadge('err','⚠️ 離線模式');showToast('⚠️ 無法連線，顯示本機備份');}
+    else{_data={name:'員工',hireDate:'2020-11-02',dailyHours:8,loaPeriods:[],leaves:[]};setSyncBadge('err','⚠️ 連線失敗');}
+  }finally{
+    hideLoading();
+    render();
+    fillSettingsForm();
+    renderLoaForm();
+  }
+}
+
+async function forceSync(){_data=null;await init_loadData();showToast('🔄 已重新同步');}
+
+// ── LEAVE CALCULATION ─────────────────────────────────────────────────────────
+function getTotalLoaDays(loaPeriods){
+  return (loaPeriods||[]).reduce((sum,p)=>{
+    if(!p.start||!p.end) return sum;
+    const s=new Date(p.start),e=new Date(p.end);
+    if(isNaN(s)||isNaN(e)||e<=s) return sum;
+    return sum+Math.round((e-s)/86400000);
+  },0);
+}
+function getAdjustedStartDate(hireDate,loaPeriods){
+  const loaDays=getTotalLoaDays(loaPeriods);
+  const start=new Date(hireDate);
+  return new Date(start.getTime()+loaDays*86400000);
+}
+function getYears(start,asOf){return(asOf-start)/(365.25*24*3600*1000);}
+function getAnnualLeaveDays(years){
+  if(years<0.5) return 0;
+  if(years<1)   return 3;
+  if(years<2)   return 7;
+  if(years<3)   return 10;
+  if(years<5)   return 14;
+  if(years<10)  return 15;
+  return Math.min(15+Math.floor(years-10),30);
+}
+function getPeriodStart(adjStart,today){
+  let ps=new Date(adjStart);
+  while(true){let n=new Date(ps);n.setFullYear(n.getFullYear()+1);if(n>today)break;ps=n;}
+  return ps;
+}
+function calcBalance(){
+  const d=getData();
+  const today=new Date();today.setHours(0,0,0,0);
+  const adj=getAdjustedStartDate(d.hireDate,d.loaPeriods);
+  if(isNaN(adj)) return null;
+  const yearsNow=getYears(adj,today);
+  if(yearsNow<0.5) return{days:0,hours:0,usedDays:0,usedExtraHours:0,usedHours:0,totalDays:0,periodStart:null,periodEnd:null,yearsNow,adj,dailyHours:d.dailyHours};
+  const ps=getPeriodStart(adj,today);
+  const pe=new Date(ps);pe.setFullYear(pe.getFullYear()+1);pe.setDate(pe.getDate()-1);
+  const totalDays=getAnnualLeaveDays(getYears(adj,ps));
+  const usedHours=d.leaves.filter(l=>{const ld=new Date(l.date);return ld>=ps&&ld<=pe;}).reduce((s,l)=>s+parseFloat(l.hours),0);
+  const totalHours=totalDays*d.dailyHours;
+  const remain=Math.max(0,totalHours-usedHours);
+  const rDays=Math.floor(remain/d.dailyHours);
+  const rHours=Math.round((remain%d.dailyHours)*10)/10;
+  const uDays=Math.floor(usedHours/d.dailyHours);
+  const uHours=Math.round((usedHours%d.dailyHours)*10)/10;
+  return{days:rDays,hours:rHours,usedDays:uDays,usedExtraHours:uHours,usedHours,totalDays,periodStart:ps,periodEnd:pe,yearsNow,adj,dailyHours:d.dailyHours};
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function render(){
+  const d=getData();
+  const cal=calcBalance();
+  document.getElementById('header-name').textContent=d.name||'特休計算器';
+  if(!cal||!cal.adj){
+    document.getElementById('header-sub').textContent='請至設定填寫到職日';
+    document.getElementById('balance-days').textContent='—';
+    document.getElementById('balance-extra-hours').textContent='';
+    document.getElementById('balance-extra-hours-label').textContent='';
+    document.getElementById('balance-total-pill').textContent='共 — 小時';
+    document.getElementById('balance-used-pill').textContent='已用 — 天';
+    document.getElementById('year-info').textContent='請設定到職日';
+    return;
+  }
+  document.getElementById('header-sub').textContent='年資起算：'+formatDate(cal.adj);
+  document.getElementById('balance-days').textContent=cal.days;
+  if(cal.hours>0){document.getElementById('balance-extra-hours').textContent=cal.hours;document.getElementById('balance-extra-hours-label').textContent='小時';}
+  else{document.getElementById('balance-extra-hours').textContent='';document.getElementById('balance-extra-hours-label').textContent='';}
+  document.getElementById('balance-total-pill').textContent='共 '+(cal.days*cal.dailyHours+cal.hours)+' 小時';
+  document.getElementById('balance-used-pill').textContent=cal.usedExtraHours>0?'已用 '+cal.usedDays+' 天 '+cal.usedExtraHours+' 小時':'已用 '+cal.usedDays+' 天';
+  if(cal.periodStart) document.getElementById('year-info').textContent=formatDate(cal.periodStart)+' ～ '+formatDate(cal.periodEnd);
+
+  if(cal.periodStart){
+    const loaDays=getTotalLoaDays(d.loaPeriods);
+    document.getElementById('year-summary').innerHTML=`
+      <div class="year-row"><span class="label">本年度假期</span><span class="value">${cal.totalDays} 天（${cal.totalDays*cal.dailyHours} 小時）</span></div>
+      <div class="year-row"><span class="label">已使用</span><span class="value">${cal.usedHours} 小時${cal.usedDays>0?'（'+cal.usedDays+' 天'+(cal.usedExtraHours>0?' '+cal.usedExtraHours+' 小時':'')+'）':''}</span></div>
+      <div class="year-row"><span class="label">剩餘</span><span class="value" style="color:var(--p2)">${cal.days} 天${cal.hours>0?' '+cal.hours+' 小時':''}</span></div>
+      <div class="year-row"><span class="label">年資（調整後）</span><span class="value">${cal.yearsNow.toFixed(1)} 年</span></div>
+      ${loaDays>0?`<div class="year-row"><span class="label">留停順延天數</span><span class="value">${loaDays} 天（${d.loaPeriods.length} 次）</span></div>`:''}`;
+  }
+  const sorted=[...d.leaves].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  renderRecordList(document.getElementById('recent-records'),sorted.slice(0,5),true);
+  renderRecordList(document.getElementById('all-records'),sorted,false);
+  renderLeaveRules();
+}
+
+function renderRecordList(container,records,isRecent){
+  if(!records.length){container.innerHTML='<div class="empty-state"><div>🌸</div>目前沒有請假紀錄</div>';return;}
+  container.innerHTML=records.map(l=>`
+    <div class="record-item">
+      <div class="record-dot"></div>
+      <div class="record-info">
+        <div class="record-date">${l.date}</div>
+        <div class="record-note">${l.note||'無備註'}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <div class="record-hours">${l.hours}h</div>
+        ${!isRecent?`<button onclick="deleteLeave(${l.id})" style="font-size:10px;color:#cc3355;border:none;background:none;cursor:pointer;font-family:'Noto Sans TC',sans-serif;">刪除</button>`:''}
+      </div>
+    </div>`).join('');
+}
+
+function renderLeaveRules(){
+  const rows=[['6個月以上未滿1年','3 天'],['1年以上未滿2年','7 天'],['2年以上未滿3年','10 天'],['3年以上未滿5年','14 天'],['5年以上未滿10年','15 天'],['10年以上每年+1天','最多 30 天']];
+  document.getElementById('leave-rules').innerHTML=rows.map(([l,v])=>`<div class="year-row"><span class="label">${l}</span><span class="value">${v}</span></div>`).join('');
+}
+
+function fillSettingsForm(){
+  const d=getData();
+  document.getElementById('s-name').value=d.name!=='員工'?d.name:'';
+  document.getElementById('s-hire-date').value=d.hireDate;
+  document.getElementById('s-daily-hours').value=d.dailyHours;
+}
+
+// ── LOA FORM ──────────────────────────────────────────────────────────────────
+// 留職停薪表單（動態新增/刪除）
+let _loaItems = []; // 暫存 form 狀態
+
+function renderLoaForm(){
+  const d=getData();
+  _loaItems=[...(d.loaPeriods||[])];
+  if(_loaItems.length===0) _loaItems=[{id:Date.now(),start:'',end:'',note:''}];
+  refreshLoaList();
+}
+
+function refreshLoaList(){
+  const container=document.getElementById('loa-list');
+  container.innerHTML=_loaItems.map((item,i)=>`
+    <div class="loa-item" id="loa-item-${item.id}">
+      <div class="loa-item-title">第 ${i+1} 次留職停薪</div>
+      ${_loaItems.length>1?`<button class="loa-delete" onclick="removeLoaItem(${item.id})">✕</button>`:''}
+      <div class="loa-2col">
+        <div>
+          <label class="form-label">開始日</label>
+          <input type="date" class="form-input" id="loa-start-${item.id}" value="${item.start}" oninput="updateLoaSummary(${item.id})">
+        </div>
+        <div>
+          <label class="form-label">結束日</label>
+          <input type="date" class="form-input" id="loa-end-${item.id}" value="${item.end}" oninput="updateLoaSummary(${item.id})">
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:10px;margin-bottom:0">
+        <label class="form-label">備註（選填）</label>
+        <input type="text" class="form-input" id="loa-note-${item.id}" value="${item.note||''}" placeholder="例：育嬰假第一次、長期照護...">
+      </div>
+      <div class="loa-summary" id="loa-summary-${item.id}">${calcLoaSummary(item)}</div>
+    </div>`).join('');
+  updateLoaTotalSummary();
+}
+
+function calcLoaSummary(item){
+  if(!item.start||!item.end) return '請選擇開始和結束日期';
+  const s=new Date(item.start),e=new Date(item.end);
+  if(isNaN(s)||isNaN(e)||e<=s) return '⚠️ 結束日須晚於開始日';
+  const days=Math.round((e-s)/86400000);
+  return `📅 共 ${days} 天（${item.start} ～ ${item.end}）`;
+}
+
+function updateLoaSummary(id){
+  const item=_loaItems.find(x=>x.id===id);
+  if(!item) return;
+  item.start=document.getElementById('loa-start-'+id)?.value||'';
+  item.end  =document.getElementById('loa-end-'+id)?.value||'';
+  item.note =document.getElementById('loa-note-'+id)?.value||'';
+  document.getElementById('loa-summary-'+id).textContent=calcLoaSummary(item);
+  updateLoaTotalSummary();
+}
+
+function updateLoaTotalSummary(){
+  const validItems=_loaItems.filter(p=>p.start&&p.end&&new Date(p.end)>new Date(p.start));
+  const total=getTotalLoaDays(validItems);
+  const el=document.getElementById('loa-total');
+  if(el) el.textContent=validItems.length>0?`合計留停 ${total} 天，特休起算日順延 ${total} 天`:'';
+}
+
+function addLoaItem(){
+  _loaItems.push({id:Date.now(),start:'',end:'',note:''});
+  refreshLoaList();
+}
+
+function removeLoaItem(id){
+  _loaItems=_loaItems.filter(x=>x.id!==id);
+  if(_loaItems.length===0) _loaItems=[{id:Date.now(),start:'',end:'',note:''}];
+  refreshLoaList();
+}
+
+function readLoaFromForm(){
+  return _loaItems.map(item=>({
+    id:item.id,
+    start:document.getElementById('loa-start-'+item.id)?.value||item.start,
+    end:  document.getElementById('loa-end-'+item.id)?.value||item.end,
+    note: document.getElementById('loa-note-'+item.id)?.value||item.note
+  })).filter(p=>p.start||p.end);
+}
+
+// ── ACTIONS ───────────────────────────────────────────────────────────────────
+async function addLeave(){
+  const date=document.getElementById('leave-date').value;
+  const hours=parseFloat(document.getElementById('leave-hours').value);
+  const note=document.getElementById('leave-note').value.trim();
+  if(!date){showToast('請選擇請假日期');return;}
+  const d=getData();
+  d.leaves.push({id:Date.now(),date,hours,note});
+  _data=d;saveLocalBackup(d);render();
+  showToast('✅ 已新增，同步中…');
+  document.getElementById('leave-date').value=todayStr();
+  document.getElementById('leave-note').value='';
+  switchTab('home');
+  showLoading('儲存到 Google Sheets…');setSyncBadge('busy','⏳ 儲存中');
+  try{await saveLeavesToSheets(d.leaves);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('☁️ 已儲存至 Google Sheets');}
+  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast('⚠️ 雲端同步失敗，本機已儲存');}
+  finally{hideLoading();}
+}
+
+async function deleteLeave(id){
+  if(!confirm('確定要刪除此筆紀錄？'))return;
+  const d=getData();d.leaves=d.leaves.filter(l=>l.id!==id);
+  _data=d;saveLocalBackup(d);render();
+  showLoading('刪除中…');setSyncBadge('busy','⏳ 同步中');
+  try{await saveLeavesToSheets(d.leaves);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('🗑️ 已刪除');}
+  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast('⚠️ 本機已刪除，雲端失敗');}
+  finally{hideLoading();}
+}
+
+async function clearAllLeaves(){
+  if(!confirm('確定要清除所有請假紀錄？'))return;
+  const d=getData();d.leaves=[];_data=d;saveLocalBackup(d);render();
+  showLoading('清除中…');
+  try{await saveLeavesToSheets([]);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('已清除所有紀錄');}
+  catch(e){setSyncBadge('err','⚠️ 同步失敗');}
+  finally{hideLoading();}
+}
+
+async function saveSettings(){
+  const name=document.getElementById('s-name').value.trim();
+  const hire=document.getElementById('s-hire-date').value;
+  const daily=document.getElementById('s-daily-hours').value;
+  if(!hire){showToast('請填寫到職日');return;}
+  const d=getData();
+  d.name=name||d.name;d.hireDate=hire;d.dailyHours=parseFloat(daily);
+  _data=d;saveLocalBackup(d);render();
+  showLoading('儲存設定中…');setSyncBadge('busy','⏳ 儲存中');
+  try{await saveSettingsToSheets(d);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('✅ 設定已儲存');}
+  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast('⚠️ 本機已儲存，雲端失敗');}
+  finally{hideLoading();}
+}
+
+async function saveLoa(){
+  const periods=readLoaFromForm();
+  const d=getData();d.loaPeriods=periods;
+  _loaItems=[...periods];if(_loaItems.length===0)_loaItems=[{id:Date.now(),start:'',end:'',note:''}];
+  _data=d;saveLocalBackup(d);render();refreshLoaList();
+  showLoading('儲存留職停薪設定…');setSyncBadge('busy','⏳ 儲存中');
+  try{await saveLoaToSheets(periods);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('✅ 留職停薪設定已儲存');}
+  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast('⚠️ 本機已儲存，雲端失敗');}
+  finally{hideLoading();}
+}
+
+// ── UI ────────────────────────────────────────────────────────────────────────
+function switchTab(tab){
+  ['home','add','records','settings'].forEach((t,i)=>{
+    document.getElementById('sec-'+t).classList.toggle('active',t===tab);
+    const nav=document.getElementById('nav-'+t);
+    if(nav)nav.classList.toggle('active',t===tab);
+  });
+  document.querySelectorAll('.tab').forEach((el,i)=>{
+    el.classList.toggle('active',['home','add','records','settings'][i]===tab);
+  });
+}
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
+function formatDate(d){if(!d||isNaN(new Date(d)))return'—';const dt=new Date(d);return dt.getFullYear()+'/'+(dt.getMonth()+1).toString().padStart(2,'0')+'/'+dt.getDate().toString().padStart(2,'0');}
+function todayStr(){const t=new Date();return t.getFullYear()+'-'+(t.getMonth()+1).toString().padStart(2,'0')+'-'+t.getDate().toString().padStart(2,'0');}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+document.getElementById('leave-date').value=todayStr();
+const _backup=loadLocalBackup();
+if(_backup){_data=_backup;render();fillSettingsForm();renderLoaForm();}
+init_loadData();
+</script>
+</body>
+</html>

@@ -316,11 +316,15 @@ async function saveSettingsToSheets(d) {
 }
 
 async function saveLoaToSheets(loaPeriods) {
-  await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveLoa', data: loaPeriods, user: getUserName() }) });
+  const user = getData().name;
+  if(!user || user==='員工') { showToast('⚠️ 請先在設定填寫姓名'); return; }
+  await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveLoa', data: loaPeriods, user }) });
 }
 
 async function saveLeavesToSheets(leaves) {
-  await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveLeaves', data: leaves, user: getUserName() }) });
+  const user = getData().name;
+  if(!user || user==='員工') { showToast('⚠️ 請先在設定填寫姓名'); return; }
+  await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveLeaves', data: leaves, user }) });
 }
 
 // ── LOCAL BACKUP ──────────────────────────────────────────────────────────────
@@ -364,7 +368,7 @@ async function forceSync(){_data=null;await init_loadData();showToast('🔄 已�
 function getTotalLoaDays(loaPeriods){
   return (loaPeriods||[]).reduce((sum,p)=>{
     if(!p.start||!p.end) return sum;
-    const s=new Date(p.start),e=new Date(p.end);
+    const s=new Date(p.start+'T00:00:00'),e=new Date(p.end+'T00:00:00');
     if(isNaN(s)||isNaN(e)||e<=s) return sum;
     return sum+Math.round((e-s)/86400000);
   },0);
@@ -545,7 +549,7 @@ function refreshLoaList(){
 
 function calcLoaSummary(item){
   if(!item.start||!item.end) return '請選擇開始和結束日期';
-  const s=new Date(item.start),e=new Date(item.end);
+  const s=new Date(item.start+'T00:00:00'),e=new Date(item.end+'T00:00:00');
   if(isNaN(s)||isNaN(e)||e<=s) return '⚠️ 結束日須晚於開始日';
   const days=Math.round((e-s)/86400000);
   return `📅 共 ${days} 天（${item.start} ～ ${item.end}）`;
@@ -591,16 +595,18 @@ function readLoaFromForm(){
 // ── ACTIONS ───────────────────────────────────────────────────────────────────
 async function addLeave(){
   const sDate = document.getElementById('leave-start-date').value;
-  // 如果沒有填結束日期，就預設等於開始日期（單天請假）
-  const eDate = document.getElementById('leave-end-date').value || sDate; 
+  const eDateRaw = document.getElementById('leave-end-date').value;
+  // 沒填結束日就等於開始日（單天）
+  const eDate = (eDateRaw && eDateRaw.trim() !== '') ? eDateRaw : sDate;
   const hours = parseFloat(document.getElementById('leave-hours').value);
   const note = document.getElementById('leave-note').value.trim();
 
   if(!sDate){showToast('請選擇開始日期');return;}
   
-  let start = new Date(sDate);
-  let end = new Date(eDate);
-  if(end < start) { showToast('結束日期不能早於開始日期'); return; }
+  let start = new Date(sDate + 'T00:00:00');
+  let end = new Date(eDate + 'T00:00:00');
+  if(isNaN(start.getTime())){showToast('開始日期格式錯誤');return;}
+  if(isNaN(end.getTime()) || end < start){end = start;}
 
   const d = getData();
   let addedCount = 0;
@@ -649,7 +655,7 @@ async function addLeave(){
 
 async function deleteLeave(id){
   if(!confirm('確定要刪除此筆紀錄？'))return;
-  const d=getData();d.leaves=d.leaves.filter(l=>l.id!==id);
+  const d=getData();d.leaves=d.leaves.filter(l=>String(l.id)!==String(id));
   _data=d;saveLocalBackup(d);render();
   showLoading('刪除中…');setSyncBadge('busy','⏳ 同步中');
   try{await saveLeavesToSheets(d.leaves);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('🗑️ 已刪除');}

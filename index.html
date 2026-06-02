@@ -81,13 +81,12 @@
   .btn-danger{background:#fff0f0;color:#cc3355;font-size:13px;padding:10px;}
 
   /* RECORDS */
-  .record-item{display:flex;align-items:center;padding:12px 0;border-bottom:1px solid rgba(255,166,251,0.15);}
+  .record-item{display:flex;align-items:center;padding:9px 0;border-bottom:1px solid rgba(255,166,251,0.15);gap:8px;}
   .record-item:last-child{border-bottom:none;}
-  .record-dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--p1),var(--p2));flex-shrink:0;margin-right:12px;}
-  .record-info{flex:1;}
-  .record-date{font-size:13px;font-weight:600;color:var(--text);}
-  .record-note{font-size:11px;color:var(--sub);margin-top:2px;}
-  .record-hours{font-size:14px;font-weight:700;color:var(--p2);}
+  .record-dot{width:8px;height:8px;border-radius:50%;background:linear-gradient(135deg,var(--p1),var(--p2));flex-shrink:0;}
+  .record-date{font-size:13px;font-weight:600;color:var(--text);flex-shrink:0;}
+  .record-note{font-size:11px;color:var(--sub);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .record-hours{font-size:13px;font-weight:700;color:var(--p2);flex-shrink:0;}
   .empty-state{text-align:center;padding:30px 0;color:var(--sub);font-size:13px;opacity:.6;}
   .empty-state div{font-size:32px;margin-bottom:8px;}
 
@@ -118,9 +117,11 @@
 
 <div class="header">
   <div class="header-title">ANNUAL LEAVE</div>
-  <div class="header-name" id="header-name">特休計算器</div>
-  <div class="header-sub" id="header-sub">載入中...</div>
-  <div class="sync-badge busy" id="sync-badge">⏳ 同步中</div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <div class="header-name" id="header-name">特休計算器</div>
+    <div class="header-sub" id="header-sub" style="margin-top:0;opacity:.6;font-size:11px;"></div>
+    <div class="sync-badge busy" id="sync-badge" style="margin-top:0;">⏳ 同步中</div>
+  </div>
 </div>
 
 <div class="balance-card">
@@ -484,14 +485,10 @@ function renderRecordList(container,records,isRecent){
   container.innerHTML=records.map(l=>`
     <div class="record-item">
       <div class="record-dot"></div>
-      <div class="record-info">
-        <div class="record-date">${l.date}</div>
-        <div class="record-note">${l.note||'無備註'}</div>
-      </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-        <div class="record-hours">${l.hours}h</div>
-        ${!isRecent?`<button onclick="deleteLeave(${l.id})" style="font-size:10px;color:#cc3355;border:none;background:none;cursor:pointer;font-family:'Noto Sans TC',sans-serif;">刪除</button>`:''}
-      </div>
+      <div class="record-date">${l.date}</div>
+      <div class="record-note">${l.note||'—'}</div>
+      <div class="record-hours">${l.hours}h</div>
+      ${!isRecent?`<button onclick="deleteLeave(${l.id})" style="font-size:10px;color:#cc3355;border:none;background:none;cursor:pointer;font-family:'Noto Sans TC',sans-serif;flex-shrink:0;">刪除</button>`:''}
     </div>`).join('');
 }
 

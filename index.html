@@ -302,29 +302,49 @@ function getUserName() {
   return ''; // 如果都沒填，就傳送空值
 }
 
+// ── 帶逾時的 fetch（預設 20 秒）─────────────────────────────────────────────
+const FETCH_TIMEOUT = 20000;
+async function fetchWithTimeout(url, options = {}, timeout = FETCH_TIMEOUT) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('TIMEOUT');
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 統一的錯誤訊息
+function errMsg(e, fallback) {
+  return (e && e.message === 'TIMEOUT') ? '⏱️ 連線逾時，本機已儲存' : fallback;
+}
+
 async function loadFromSheets() {
   const user = getUserName();
   // 網址後面自動帶上名字，例如：?user=政樵
-  const res = await fetch(`${GAS_URL}?user=${encodeURIComponent(user)}`);
+  const res = await fetchWithTimeout(`${GAS_URL}?user=${encodeURIComponent(user)}`);
   if (!res.ok) throw new Error('API 讀取失敗');
   return await res.json();
 }
 
 async function saveSettingsToSheets(d) {
   // 儲存設定時，直接用設定表單填寫的名字 (d.name)
-  await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveSettings', data: d, user: d.name }) });
+  await fetchWithTimeout(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveSettings', data: d, user: d.name }) });
 }
 
 async function saveLoaToSheets(loaPeriods) {
   const user = getData().name;
   if(!user || user==='員工') { showToast('⚠️ 請先在設定填寫姓名'); return; }
-  await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveLoa', data: loaPeriods, user }) });
+  await fetchWithTimeout(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveLoa', data: loaPeriods, user }) });
 }
 
 async function saveLeavesToSheets(leaves) {
   const user = getData().name;
   if(!user || user==='員工') { showToast('⚠️ 請先在設定填寫姓名'); return; }
-  await fetch(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveLeaves', data: leaves, user }) });
+  await fetchWithTimeout(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveLeaves', data: leaves, user }) });
 }
 
 // ── LOCAL BACKUP ──────────────────────────────────────────────────────────────
@@ -336,24 +356,40 @@ function getData(){
   if(_data) return _data;
   return loadLocalBackup()||{name:'員工',hireDate:'2020-11-02',dailyHours:8,leaveType:'anniversary',loaPeriods:[],leaves:[]};
 }
-async function init_loadData(){
-  showLoading('從 Google Sheets 載入資料…');
-  setSyncBadge('busy','⏳ 載入中');
+async function init_loadData(isManual = false){
+  const hasCache = !!loadLocalBackup();
+
+  // 有快取 → 畫面已經有資料，背景同步不擋畫面
+  // 沒快取（第一次開）或手動同步 → 顯示 loading
+  if (!hasCache || isManual) showLoading('從 Google Sheets 載入資料…');
+  setSyncBadge('busy','⏳ 同步中');
+
   try{
-    _data = await loadFromSheets();
+    const fresh = await loadFromSheets();
     // 向下相容：舊格式 loaStart/loaEnd → 轉成 loaPeriods
-    if(!_data.loaPeriods && (_data.loaStart||_data.loaEnd)){
-      _data.loaPeriods = [{id:1,start:_data.loaStart||'',end:_data.loaEnd||'',note:''}];
+    if(!fresh.loaPeriods && (fresh.loaStart||fresh.loaEnd)){
+      fresh.loaPeriods = [{id:1,start:fresh.loaStart||'',end:fresh.loaEnd||'',note:''}];
     }
-    if(!_data.loaPeriods) _data.loaPeriods=[];
+    if(!fresh.loaPeriods) fresh.loaPeriods=[];
+    _data = fresh;
     saveLocalBackup(_data);
     setSyncBadge('ok','✅ 已同步');
     updateLastSyncTime();
+    if(isManual) showToast('🔄 已重新同步');
   }catch(e){
     console.error(e);
-    const backup=loadLocalBackup();
-    if(backup){_data=backup;setSyncBadge('err','⚠️ 離線模式');showToast('⚠️ 無法連線，顯示本機備份');}
-    else{_data={name:'員工',hireDate:'2020-11-02',dailyHours:8,loaPeriods:[],leaves:[]};setSyncBadge('err','⚠️ 連線失敗');}
+    const isTimeout = (e && e.message === 'TIMEOUT');
+    const backup = loadLocalBackup();
+
+    if(backup){
+      _data = backup;
+      setSyncBadge('err','⚠️ 離線');
+      showToast(isTimeout ? '⏱️ 連線逾時，離線顯示上次的資料' : '⚠️ 離線顯示上次的資料');
+    }else{
+      _data = {name:'員工',hireDate:'2020-11-02',dailyHours:8,leaveType:'anniversary',loaPeriods:[],leaves:[]};
+      setSyncBadge('err','⚠️ 連線失敗');
+      showToast(isTimeout ? '⏱️ 連線逾時，請檢查網路' : '⚠️ 連線失敗，請檢查網路');
+    }
   }finally{
     hideLoading();
     render();
@@ -362,7 +398,7 @@ async function init_loadData(){
   }
 }
 
-async function forceSync(){_data=null;await init_loadData();showToast('🔄 已重新同步');}
+async function forceSync(){_data=null;await init_loadData(true);}
 
 // ── LEAVE CALCULATION ─────────────────────────────────────────────────────────
 function getTotalLoaDays(loaPeriods){
@@ -647,7 +683,7 @@ async function addLeave(){
     showToast('☁️ 已儲存至 Google Sheets');
   } catch(e) {
     setSyncBadge('err', '⚠️ 同步失敗');
-    showToast('⚠️ 雲端同步失敗，本機已儲存');
+    showToast(errMsg(e, '⚠️ 雲端同步失敗，本機已儲存'));
   } finally {
     hideLoading();
   }
@@ -659,7 +695,7 @@ async function deleteLeave(id){
   _data=d;saveLocalBackup(d);render();
   showLoading('刪除中…');setSyncBadge('busy','⏳ 同步中');
   try{await saveLeavesToSheets(d.leaves);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('🗑️ 已刪除');}
-  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast('⚠️ 本機已刪除，雲端失敗');}
+  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast(errMsg(e,'⚠️ 本機已刪除，雲端失敗'));}
   finally{hideLoading();}
 }
 
@@ -668,7 +704,7 @@ async function clearAllLeaves(){
   const d=getData();d.leaves=[];_data=d;saveLocalBackup(d);render();
   showLoading('清除中…');
   try{await saveLeavesToSheets([]);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('已清除所有紀錄');}
-  catch(e){setSyncBadge('err','⚠️ 同步失敗');}
+  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast(errMsg(e,'⚠️ 本機已清除，雲端失敗'));}
   finally{hideLoading();}
 }
 
@@ -684,7 +720,7 @@ async function saveSettings(){
   _data=d;saveLocalBackup(d);render();
   showLoading('儲存設定中…');setSyncBadge('busy','⏳ 儲存中');
   try{await saveSettingsToSheets(d);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('✅ 設定已儲存');}
-  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast('⚠️ 本機已儲存，雲端失敗');}
+  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast(errMsg(e,'⚠️ 本機已儲存，雲端失敗'));}
   finally{hideLoading();}
 }
 
@@ -695,7 +731,7 @@ async function saveLoa(){
   _data=d;saveLocalBackup(d);render();refreshLoaList();
   showLoading('儲存留職停薪設定…');setSyncBadge('busy','⏳ 儲存中');
   try{await saveLoaToSheets(periods);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('✅ 留職停薪設定已儲存');}
-  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast('⚠️ 本機已儲存，雲端失敗');}
+  catch(e){setSyncBadge('err','⚠️ 同步失敗');showToast(errMsg(e,'⚠️ 本機已儲存，雲端失敗'));}
   finally{hideLoading();}
 }
 

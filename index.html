@@ -91,6 +91,12 @@
   .empty-state{text-align:center;padding:30px 0;color:var(--sub);font-size:13px;opacity:.6;}
   .empty-state div{font-size:32px;margin-bottom:8px;}
 
+  /* LEAVE TYPE BADGE */
+  .lt-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;flex-shrink:0;}
+  .lt-badge.annual{background:rgba(255,234,108,.45);color:#7a5a00;}
+  .lt-badge.period{background:rgba(255,97,248,.14);color:#b3209f;}
+  .warn-note{background:rgba(255,97,248,.08);border:1px solid var(--border);border-radius:10px;padding:9px 11px;font-size:11.5px;color:var(--sub);line-height:1.6;margin-top:10px;}
+
   /* YEAR ROW */
   .year-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,166,251,0.12);font-size:13px;}
   .year-row:last-child{border-bottom:none;}
@@ -146,6 +152,10 @@
     <div class="card-title"><span>📋</span> 本年度概覽</div>
     <div id="year-summary"></div>
   </div>
+  <div class="card" id="card-period-summary" style="display:none">
+    <div class="card-title"><span>🌸</span> 生理假（曆年制）</div>
+    <div id="period-summary"></div>
+  </div>
   <div class="card">
     <div class="card-title"><span>🗓️</span> 最近請假紀錄</div>
     <div id="recent-records"></div>
@@ -156,11 +166,18 @@
 <div class="section" id="sec-add">
   <div class="card">
     <div class="card-title"><span>➕</span> 新增請假</div>
+    <div class="form-row" id="row-leave-type" style="display:none">
+      <label class="form-label">假別</label>
+      <select class="form-input" id="leave-kind" onchange="onLeaveKindChange()">
+        <option value="annual" selected>特休</option>
+        <option value="period">生理假</option>
+      </select>
+    </div>
     <div class="form-row">
       <label class="form-label">開始日期</label>
       <input type="date" class="form-input" id="leave-start-date">
     </div>
-    <div class="form-row">
+    <div class="form-row" id="row-end-date">
       <label class="form-label">結束日期（單天請假免填）</label>
       <input type="date" class="form-input" id="leave-end-date">
     </div>
@@ -189,15 +206,20 @@
       <label class="form-label">備註（選填）</label>
       <input type="text" class="form-input" id="leave-note" placeholder="例：家庭聚會、個人事務...">
     </div>
-    <button class="btn btn-primary" onclick="addLeave()">確認新增</button>
+    <div id="period-hint" class="warn-note" style="display:none"></div>
+    <button class="btn btn-primary" onclick="addLeave()" style="margin-top:12px">確認新增</button>
   </div>
 </div>
 
 <!-- RECORDS -->
 <div class="section" id="sec-records">
   <div class="card">
-    <div class="card-title"><span>📂</span> 所有請假紀錄</div>
+    <div class="card-title"><span>📂</span> 特休紀錄</div>
     <div id="all-records"></div>
+  </div>
+  <div class="card" id="card-period-records" style="display:none">
+    <div class="card-title"><span>🌸</span> 生理假紀錄</div>
+    <div id="period-records"></div>
   </div>
 </div>
 
@@ -229,6 +251,30 @@
         <option value="anniversary">週年制（依到職日）</option>
         <option value="calendar">曆年制（每年 1/1 重新起算）</option>
       </select>
+    </div>
+    <div class="form-row">
+      <label class="form-label">生理假</label>
+      <select class="form-input" id="s-enable-period" onchange="togglePeriodSetting()">
+        <option value="0" selected>不使用</option>
+        <option value="1">啟用</option>
+      </select>
+    </div>
+    <div class="form-row" id="row-period-free" style="display:none">
+      <label class="form-label">全年不併入病假日數</label>
+      <select class="form-input" id="s-period-free">
+        <option value="3" selected>3 日（勞基法最低標準）</option>
+        <option value="4">4 日</option>
+        <option value="5">5 日</option>
+        <option value="6">6 日</option>
+        <option value="7">7 日</option>
+        <option value="8">8 日</option>
+        <option value="9">9 日</option>
+        <option value="10">10 日</option>
+        <option value="12">12 日（每月 1 日全額）</option>
+      </select>
+      <div style="font-size:11px;color:var(--sub);margin-top:6px;line-height:1.6;">
+        公司優於法令時請調高。超過此日數的生理假會併入病假計算。
+      </div>
     </div>
     <button class="btn btn-secondary" onclick="saveSettings()" style="margin-bottom:0">儲存設定</button>
   </div>
@@ -341,6 +387,12 @@ async function saveLoaToSheets(loaPeriods) {
   await fetchWithTimeout(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'saveLoa', data: loaPeriods, user }) });
 }
 
+async function savePeriodLeavesToSheets(list) {
+  const user = getData().name;
+  if(!user || user==='員工') { showToast('⚠️ 請先在設定填寫姓名'); return; }
+  await fetchWithTimeout(GAS_URL, { method: 'POST', body: JSON.stringify({ action: 'savePeriodLeaves', data: list, user }) });
+}
+
 async function saveLeavesToSheets(leaves) {
   const user = getData().name;
   if(!user || user==='員工') { showToast('⚠️ 請先在設定填寫姓名'); return; }
@@ -354,7 +406,7 @@ function loadLocalBackup(){try{const s=localStorage.getItem('lc_backup');return 
 // ── DATA API ──────────────────────────────────────────────────────────────────
 function getData(){
   if(_data) return _data;
-  return loadLocalBackup()||{name:'員工',hireDate:'2020-11-02',dailyHours:8,leaveType:'anniversary',loaPeriods:[],leaves:[]};
+  return loadLocalBackup()||{name:'員工',hireDate:'2020-11-02',dailyHours:8,leaveType:'anniversary',enablePeriod:0,periodFreeDays:3,loaPeriods:[],leaves:[],periodLeaves:[]};
 }
 async function init_loadData(isManual = false){
   const hasCache = !!loadLocalBackup();
@@ -371,6 +423,9 @@ async function init_loadData(isManual = false){
       fresh.loaPeriods = [{id:1,start:fresh.loaStart||'',end:fresh.loaEnd||'',note:''}];
     }
     if(!fresh.loaPeriods) fresh.loaPeriods=[];
+    if(!fresh.periodLeaves) fresh.periodLeaves=[];
+    fresh.enablePeriod = Number(fresh.enablePeriod)||0;
+    fresh.periodFreeDays = Number(fresh.periodFreeDays)||3;
     _data = fresh;
     saveLocalBackup(_data);
     setSyncBadge('ok','✅ 已同步');
@@ -386,7 +441,7 @@ async function init_loadData(isManual = false){
       setSyncBadge('err','⚠️ 離線');
       showToast(isTimeout ? '⏱️ 連線逾時，離線顯示上次的資料' : '⚠️ 離線顯示上次的資料');
     }else{
-      _data = {name:'員工',hireDate:'2020-11-02',dailyHours:8,leaveType:'anniversary',loaPeriods:[],leaves:[]};
+      _data = {name:'員工',hireDate:'2020-11-02',dailyHours:8,leaveType:'anniversary',enablePeriod:0,periodFreeDays:3,loaPeriods:[],leaves:[],periodLeaves:[]};
       setSyncBadge('err','⚠️ 連線失敗');
       showToast(isTimeout ? '⏱️ 連線逾時，請檢查網路' : '⚠️ 連線失敗，請檢查網路');
     }
@@ -483,6 +538,54 @@ function calcBalance(){
   return{days:rDays,hours:rHours,usedDays:uDays,usedExtraHours:uHours,usedHours,totalDays,periodStart:ps,periodEnd:pe,yearsNow,adj,dailyHours:d.dailyHours};
 }
 
+// ── 生理假計算（性平法第14條：每月1日，全年3日不併入病假）──────────────────
+const PERIOD_MONTHLY_DAYS   = 1;  // 每月上限（日），法定
+const PERIOD_FREE_DAYS_LEGAL = 3; // 全年不併病假日數的法定下限（可於設定調高）
+
+function periodFreeDays(){
+  const v = Number(getData().periodFreeDays);
+  return (v && v > 0) ? v : PERIOD_FREE_DAYS_LEGAL;
+}
+
+function calcPeriodBalance(ym){
+  const d = getData();
+  const dh = d.dailyHours || 8;
+  const list = d.periodLeaves || [];
+  const now = new Date();
+  const year  = ym ? Number(ym.slice(0,4)) : now.getFullYear();
+  const month = ym ? Number(ym.slice(5,7)) : (now.getMonth()+1);
+
+  let usedYear = 0, usedMonth = 0;
+  list.forEach(function(l){
+    if(!l.date) return;
+    const y = Number(String(l.date).slice(0,4));
+    const m = Number(String(l.date).slice(5,7));
+    const h = parseFloat(l.hours)||0;
+    if(y === year){
+      usedYear += h;
+      if(m === month) usedMonth += h;
+    }
+  });
+
+  const monthQuota = PERIOD_MONTHLY_DAYS * dh;
+  const freeDays   = periodFreeDays();
+  const freeQuota  = freeDays * dh;
+  return {
+    year, month, dailyHours: dh, freeDays,
+    usedMonth, usedYear,
+    monthQuota,  monthRemain: Math.max(0, monthQuota - usedMonth),
+    freeQuota,   freeRemain : Math.max(0, freeQuota  - usedYear),
+    sickHours  : Math.max(0, usedYear - freeQuota)   // 超過 3 日，併入病假的部分
+  };
+}
+
+function fmtDH(hours, dh){
+  const d = Math.floor(hours/dh), h = Math.round((hours%dh)*10)/10;
+  if(d>0 && h>0) return d+' 天 '+h+' 小時';
+  if(d>0) return d+' 天';
+  return h+' 小時';
+}
+
 // ── RENDER ────────────────────────────────────────────────────────────────────
 function render(){
   const d=getData();
@@ -515,27 +618,87 @@ function render(){
       <div class="year-row"><span class="label">年資（調整後）</span><span class="value">${cal.yearsNow.toFixed(1)} 年</span></div>
       ${loaDays>0?`<div class="year-row"><span class="label">留停順延天數</span><span class="value">${loaDays} 天（${d.loaPeriods.length} 次）</span></div>`:''}`;
   }
+  const on = !!Number(d.enablePeriod);
+  // 依開關顯示／隱藏所有生理假相關區塊
+  ['card-period-summary','card-period-records','row-leave-type'].forEach(function(id){
+    const el=document.getElementById(id);
+    if(el) el.style.display = on ? '' : 'none';
+  });
+  if(!on){ const k=document.getElementById('leave-kind'); if(k) k.value='annual'; }
+  onLeaveKindChange();
+  if(on) renderPeriodSummary();
+
   const sorted=[...d.leaves].sort((a,b)=>new Date(b.date)-new Date(a.date));
-  renderRecordList(document.getElementById('recent-records'),sorted.slice(0,5),true);
-  renderRecordList(document.getElementById('all-records'),sorted,false);
+  renderRecordList(document.getElementById('recent-records'),sorted.slice(0,5),true,'annual');
+  renderRecordList(document.getElementById('all-records'),sorted,false,'annual');
+  if(on){
+    const ps=[...(d.periodLeaves||[])].sort((a,b)=>new Date(b.date)-new Date(a.date));
+    renderRecordList(document.getElementById('period-records'),ps,false,'period');
+  }
   renderLeaveRules();
 }
 
-function renderRecordList(container,records,isRecent){
+function renderRecordList(container,records,isRecent,kind){
+  if(!container) return;
+  kind = kind || 'annual';
   if(!records.length){container.innerHTML='<div class="empty-state"><div>🌸</div>目前沒有請假紀錄</div>';return;}
+  const showBadge = isRecent && Number(getData().enablePeriod);
+  const delFn = (kind==='period') ? 'deletePeriodLeave' : 'deleteLeave';
   container.innerHTML=records.map(l=>`
     <div class="record-item">
-      <div class="record-dot"></div>
+      <div class="record-dot"${kind==='period'?' style="background:linear-gradient(135deg,#FF61F8,#b3209f)"':''}></div>
       <div class="record-date">${l.date}</div>
+      ${showBadge?`<span class="lt-badge ${kind}">${kind==='period'?'生理':'特休'}</span>`:''}
       <div class="record-note">${l.note||'—'}</div>
       <div class="record-hours">${l.hours}h</div>
-      ${!isRecent?`<button onclick="deleteLeave(${l.id})" style="font-size:10px;color:#cc3355;border:none;background:none;cursor:pointer;font-family:'Noto Sans TC',sans-serif;flex-shrink:0;">刪除</button>`:''}
+      ${!isRecent?`<button onclick="${delFn}(${l.id})" style="font-size:10px;color:#cc3355;border:none;background:none;cursor:pointer;font-family:'Noto Sans TC',sans-serif;flex-shrink:0;">刪除</button>`:''}
     </div>`).join('');
+}
+
+// 首頁生理假摘要卡
+function renderPeriodSummary(){
+  const el=document.getElementById('period-summary');
+  if(!el) return;
+  const p=calcPeriodBalance();
+  const dh=p.dailyHours;
+  el.innerHTML=`
+    <div class="year-row"><span class="label">${p.month} 月可用</span><span class="value" style="color:var(--p2)">${fmtDH(p.monthRemain,dh)}${p.monthRemain===0?'（本月已用完）':''}</span></div>
+    <div class="year-row"><span class="label">本月已用</span><span class="value">${fmtDH(p.usedMonth,dh)}</span></div>
+    <div class="year-row"><span class="label">${p.year} 年不併病假剩餘</span><span class="value" style="color:var(--p2)">${fmtDH(p.freeRemain,dh)} / ${p.freeDays} 天</span></div>
+    <div class="year-row"><span class="label">全年已用</span><span class="value">${fmtDH(p.usedYear,dh)}</span></div>
+    ${p.sickHours>0?`<div class="year-row"><span class="label">已併入病假</span><span class="value" style="color:#cc3355">${fmtDH(p.sickHours,dh)}</span></div>`:''}
+    <div class="warn-note">生理假每月 1 日，全年 ${p.freeDays} 天不併入病假（薪資減半）${p.freeDays>PERIOD_FREE_DAYS_LEGAL?'（貴公司優於法令，法定為 '+PERIOD_FREE_DAYS_LEGAL+' 天）':''}；超過的部分併入病假計算，不另扣特休。</div>`;
+}
+
+// 切換假別時調整表單
+function onLeaveKindChange(){
+  const k=document.getElementById('leave-kind');
+  const kind = k ? k.value : 'annual';
+  const rowEnd=document.getElementById('row-end-date');
+  const hint=document.getElementById('period-hint');
+  if(rowEnd) rowEnd.style.display = (kind==='period') ? 'none' : '';
+  if(hint){
+    if(kind==='period'){
+      const p=calcPeriodBalance();
+      hint.style.display='';
+      hint.innerHTML = p.monthRemain>0
+        ? `🌸 ${p.month} 月還可請 ${fmtDH(p.monthRemain,p.dailyHours)}；今年不併病假額度剩 ${fmtDH(p.freeRemain,p.dailyHours)}。生理假僅限單日。`
+        : `⚠️ ${p.month} 月的生理假（1 日）已用完，再請會超出法定每月上限。`;
+    }else{
+      hint.style.display='none';
+    }
+  }
 }
 
 function renderLeaveRules(){
   const rows=[['6個月以上未滿1年','3 天'],['1年以上未滿2年','7 天'],['2年以上未滿3年','10 天'],['3年以上未滿5年','14 天'],['5年以上未滿10年','15 天'],['10年以上每年+1天','最多 30 天']];
-  document.getElementById('leave-rules').innerHTML=rows.map(([l,v])=>`<div class="year-row"><span class="label">${l}</span><span class="value">${v}</span></div>`).join('');
+  let html=rows.map(([l,v])=>`<div class="year-row"><span class="label">${l}</span><span class="value">${v}</span></div>`).join('');
+  if(Number(getData().enablePeriod)){
+    const fd=periodFreeDays();
+    html+=`<div class="year-row" style="margin-top:6px"><span class="label">🌸 生理假・每月</span><span class="value">1 日</span></div>`
+        + `<div class="year-row"><span class="label">🌸 生理假・全年不併病假</span><span class="value">${fd} 日</span></div>`;
+  }
+  document.getElementById('leave-rules').innerHTML=html;
 }
 
 function fillSettingsForm(){
@@ -545,6 +708,11 @@ function fillSettingsForm(){
   document.getElementById('s-daily-hours').value=d.dailyHours;
   const typeEl = document.getElementById('s-leave-type');
   if(typeEl) typeEl.value=d.leaveType||'anniversary';
+  const epEl = document.getElementById('s-enable-period');
+  if(epEl) epEl.value=String(Number(d.enablePeriod)||0);
+  const pfEl = document.getElementById('s-period-free');
+  if(pfEl) pfEl.value=String(Number(d.periodFreeDays)||3);
+  togglePeriodSetting();
 }
 
 // ── LOA FORM ──────────────────────────────────────────────────────────────────
@@ -630,6 +798,8 @@ function readLoaFromForm(){
 
 // ── ACTIONS ───────────────────────────────────────────────────────────────────
 async function addLeave(){
+  const kindEl = document.getElementById('leave-kind');
+  if(kindEl && kindEl.value === 'period'){ return addPeriodLeave(); }
   const sDate = document.getElementById('leave-start-date').value;
   const eDateRaw = document.getElementById('leave-end-date').value;
   // 沒填結束日就等於開始日（單天）
@@ -689,6 +859,63 @@ async function addLeave(){
   }
 }
 
+// 新增生理假（單日、每月上限 1 日）
+async function addPeriodLeave(){
+  const date  = document.getElementById('leave-start-date').value;
+  const hours = parseFloat(document.getElementById('leave-hours').value);
+  const note  = document.getElementById('leave-note').value.trim();
+  if(!date){ showToast('請選擇日期'); return; }
+
+  const d  = getData();
+  const dh = d.dailyHours || 8;
+  const ym = date.slice(0,7);
+  const p  = calcPeriodBalance(ym);
+
+  // 每月 1 日上限檢查
+  if(p.usedMonth + hours > p.monthQuota + 0.001){
+    const over = (p.usedMonth + hours) - p.monthQuota;
+    if(!confirm(`${p.month} 月的生理假已用 ${fmtDH(p.usedMonth,dh)}，再加這筆會超出法定每月 1 日上限 ${fmtDH(over,dh)}。\n\n仍要新增嗎？`)) return;
+  }
+  // 全年不併病假額度提醒
+  if(p.usedYear + hours > p.freeQuota + 0.001){
+    const intoSick = (p.usedYear + hours) - p.freeQuota;
+    if(!confirm(`這筆將使 ${p.year} 年生理假超過 ${p.freeDays} 天，超出的 ${fmtDH(intoSick,dh)} 會併入病假計算。\n\n仍要新增嗎？`)) return;
+  }
+
+  d.periodLeaves = d.periodLeaves || [];
+  d.periodLeaves.push({ id: Date.now(), date, hours, note });
+  _data = d; saveLocalBackup(d); render();
+  showToast('🌸 已新增生理假，同步中…');
+
+  document.getElementById('leave-start-date').value = todayStr();
+  document.getElementById('leave-note').value = '';
+  switchTab('home');
+
+  showLoading('儲存到 Google Sheets…'); setSyncBadge('busy','⏳ 儲存中');
+  try{
+    await savePeriodLeavesToSheets(d.periodLeaves);
+    setSyncBadge('ok','✅ 已同步'); updateLastSyncTime();
+    showToast('☁️ 已儲存至 Google Sheets');
+  }catch(e){
+    setSyncBadge('err','⚠️ 同步失敗');
+    showToast(errMsg(e,'⚠️ 雲端同步失敗，本機已儲存'));
+  }finally{ hideLoading(); }
+}
+
+async function deletePeriodLeave(id){
+  if(!confirm('確定要刪除這筆生理假紀錄？')) return;
+  const d=getData();
+  d.periodLeaves=(d.periodLeaves||[]).filter(l=>String(l.id)!==String(id));
+  _data=d; saveLocalBackup(d); render();
+  showLoading('刪除中…'); setSyncBadge('busy','⏳ 同步中');
+  try{
+    await savePeriodLeavesToSheets(d.periodLeaves);
+    setSyncBadge('ok','✅ 已同步'); updateLastSyncTime(); showToast('🗑️ 已刪除');
+  }catch(e){
+    setSyncBadge('err','⚠️ 同步失敗'); showToast(errMsg(e,'⚠️ 本機已刪除，雲端失敗'));
+  }finally{ hideLoading(); }
+}
+
 async function deleteLeave(id){
   if(!confirm('確定要刪除此筆紀錄？'))return;
   const d=getData();d.leaves=d.leaves.filter(l=>String(l.id)!==String(id));
@@ -713,10 +940,14 @@ async function saveSettings(){
   const hire=document.getElementById('s-hire-date').value;
   const daily=document.getElementById('s-daily-hours').value;
   const typeEl=document.getElementById('s-leave-type');
+  const epEl=document.getElementById('s-enable-period');
+  const pfEl=document.getElementById('s-period-free');
   if(!hire){showToast('請填寫到職日');return;}
   const d=getData();
   d.name=name||d.name;d.hireDate=hire;d.dailyHours=parseFloat(daily);
   if(typeEl) d.leaveType=typeEl.value;
+  if(epEl) d.enablePeriod=Number(epEl.value)||0;
+  if(pfEl) d.periodFreeDays=Number(pfEl.value)||3;
   _data=d;saveLocalBackup(d);render();
   showLoading('儲存設定中…');setSyncBadge('busy','⏳ 儲存中');
   try{await saveSettingsToSheets(d);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('✅ 設定已儲存');}
@@ -745,6 +976,11 @@ function switchTab(tab){
   document.querySelectorAll('.tab').forEach((el,i)=>{
     el.classList.toggle('active',['home','add','records','settings'][i]===tab);
   });
+}
+function togglePeriodSetting(){
+  const epEl=document.getElementById('s-enable-period');
+  const row=document.getElementById('row-period-free');
+  if(row && epEl) row.style.display = (epEl.value==='1') ? '' : 'none';
 }
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
 function formatDate(d){if(!d||isNaN(new Date(d)))return'—';const dt=new Date(d);return dt.getFullYear()+'/'+(dt.getMonth()+1).toString().padStart(2,'0')+'/'+dt.getDate().toString().padStart(2,'0');}

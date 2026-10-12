@@ -95,6 +95,9 @@
   .lt-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;flex-shrink:0;}
   .lt-badge.annual{background:rgba(255,234,108,.45);color:#7a5a00;}
   .lt-badge.period{background:rgba(255,97,248,.14);color:#b3209f;}
+  .paybar{height:8px;border-radius:20px;background:rgba(255,166,251,.2);overflow:hidden;margin:8px 0 4px;}
+  .paybar i{display:block;height:100%;border-radius:20px;background:linear-gradient(90deg,var(--y1),var(--p2));}
+  .paybar i.over{background:linear-gradient(90deg,var(--p2),#cc3355);}
   .warn-note{background:rgba(255,97,248,.08);border:1px solid var(--border);border-radius:10px;padding:9px 11px;font-size:11.5px;color:var(--sub);line-height:1.6;margin-top:10px;}
 
   /* YEAR ROW */
@@ -182,8 +185,8 @@
       <input type="date" class="form-input" id="leave-end-date">
     </div>
     <div class="form-row">
-      <label class="form-label">請假時數（最少 0.5 小時）</label>
-      <select class="form-input" id="leave-hours">
+      <label class="form-label" id="hours-label">請假時數（最少 0.5 小時）</label>
+      <select class="form-input" id="leave-hours" onchange="this.dataset.touched='1'">
         <option value="0.5">0.5 小時</option>
         <option value="1">1 小時</option>
         <option value="1.5">1.5 小時</option>
@@ -221,6 +224,7 @@
     <div class="card-title"><span>🌸</span> 生理假紀錄</div>
     <div id="period-records"></div>
   </div>
+
 </div>
 
 <!-- SETTINGS -->
@@ -260,20 +264,35 @@
       </select>
     </div>
     <div class="form-row" id="row-period-free" style="display:none">
-      <label class="form-label">全年不併入病假日數</label>
+      <label class="form-label">生理假不併入病假日數</label>
       <select class="form-input" id="s-period-free">
-        <option value="3" selected>3 日（勞基法最低標準）</option>
+        <option value="3" selected>3 日（法定）</option>
         <option value="4">4 日</option>
         <option value="5">5 日</option>
         <option value="6">6 日</option>
         <option value="7">7 日</option>
-        <option value="8">8 日</option>
-        <option value="9">9 日</option>
         <option value="10">10 日</option>
         <option value="12">12 日（每月 1 日全額）</option>
       </select>
       <div style="font-size:11px;color:var(--sub);margin-top:6px;line-height:1.6;">
-        公司優於法令時請調高。超過此日數的生理假會併入病假計算。
+        本年度生理假超過此日數的部分，會併入病假計算。
+      </div>
+    </div>
+    <div class="form-row" id="row-fullpay" style="display:none">
+      <label class="form-label">全薪上限（生理假＋病假合併）</label>
+      <select class="form-input" id="s-fullpay-days">
+        <option value="0">不適用（依法定半薪）</option>
+        <option value="3">3 日</option>
+        <option value="5">5 日</option>
+        <option value="7" selected>7 日</option>
+        <option value="10">10 日</option>
+        <option value="14">14 日</option>
+        <option value="30">30 日</option>
+      </select>
+      <div style="font-size:11px;color:var(--sub);margin-top:6px;line-height:1.6;">
+        生理假與病假合併在此日數內薪資照給，超過部分給付半薪。<br>
+        本系統只記生理假；若另有請病假，請自行併計。<br>
+        年度起算方式跟隨上方「特休計算制度」（週年制或曆年制）。
       </div>
     </div>
     <button class="btn btn-secondary" onclick="saveSettings()" style="margin-bottom:0">儲存設定</button>
@@ -406,7 +425,7 @@ function loadLocalBackup(){try{const s=localStorage.getItem('lc_backup');return 
 // ── DATA API ──────────────────────────────────────────────────────────────────
 function getData(){
   if(_data) return _data;
-  return loadLocalBackup()||{name:'員工',hireDate:'2020-11-02',dailyHours:8,leaveType:'anniversary',enablePeriod:0,periodFreeDays:3,loaPeriods:[],leaves:[],periodLeaves:[]};
+  return loadLocalBackup()||{name:'員工',hireDate:'2020-11-02',dailyHours:8,leaveType:'anniversary',enablePeriod:0,periodFreeDays:3,fullPayDays:7,loaPeriods:[],leaves:[],periodLeaves:[]};
 }
 async function init_loadData(isManual = false){
   const hasCache = !!loadLocalBackup();
@@ -426,6 +445,7 @@ async function init_loadData(isManual = false){
     if(!fresh.periodLeaves) fresh.periodLeaves=[];
     fresh.enablePeriod = Number(fresh.enablePeriod)||0;
     fresh.periodFreeDays = Number(fresh.periodFreeDays)||3;
+    fresh.fullPayDays = (fresh.fullPayDays===''||fresh.fullPayDays===null||fresh.fullPayDays===undefined)?7:Number(fresh.fullPayDays);
     _data = fresh;
     saveLocalBackup(_data);
     setSyncBadge('ok','✅ 已同步');
@@ -441,7 +461,7 @@ async function init_loadData(isManual = false){
       setSyncBadge('err','⚠️ 離線');
       showToast(isTimeout ? '⏱️ 連線逾時，離線顯示上次的資料' : '⚠️ 離線顯示上次的資料');
     }else{
-      _data = {name:'員工',hireDate:'2020-11-02',dailyHours:8,leaveType:'anniversary',enablePeriod:0,periodFreeDays:3,loaPeriods:[],leaves:[],periodLeaves:[]};
+      _data = {name:'員工',hireDate:'2020-11-02',dailyHours:8,leaveType:'anniversary',enablePeriod:0,periodFreeDays:3,fullPayDays:7,loaPeriods:[],leaves:[],periodLeaves:[]};
       setSyncBadge('err','⚠️ 連線失敗');
       showToast(isTimeout ? '⏱️ 連線逾時，請檢查網路' : '⚠️ 連線失敗，請檢查網路');
     }
@@ -542,40 +562,78 @@ function calcBalance(){
 const PERIOD_MONTHLY_DAYS   = 1;  // 每月上限（日），法定
 const PERIOD_FREE_DAYS_LEGAL = 3; // 全年不併病假日數的法定下限（可於設定調高）
 
+function fullPayDays(){
+  const v = getData().fullPayDays;
+  return (v === undefined || v === null || v === '') ? 7 : (Number(v) || 0);
+}
+
 function periodFreeDays(){
   const v = Number(getData().periodFreeDays);
   return (v && v > 0) ? v : PERIOD_FREE_DAYS_LEGAL;
 }
 
-function calcPeriodBalance(ym){
-  const d = getData();
-  const dh = d.dailyHours || 8;
+// 取得「年度窗口」：跟特休同一套制度（週年制依到職週年，曆年制為 1/1～12/31）
+function getLeaveWindow(refDate){
+  const d   = getData();
+  const ref = refDate ? new Date(String(refDate).slice(0,10)+'T00:00:00') : new Date();
+  ref.setHours(0,0,0,0);
+
+  if(d.leaveType === 'calendar'){
+    const y = ref.getFullYear();
+    return { ps:new Date(y,0,1), pe:new Date(y,11,31), mode:'calendar' };
+  }
+  // 週年制：以調整後到職日（已扣留停）起算
+  const adj = getAdjustedStartDate(d.hireDate, d.loaPeriods);
+  if(isNaN(adj)){
+    const y = ref.getFullYear();
+    return { ps:new Date(y,0,1), pe:new Date(y,11,31), mode:'calendar' };
+  }
+  const ps = getPeriodStart(adj, ref);
+  const pe = new Date(ps); pe.setFullYear(pe.getFullYear()+1); pe.setDate(pe.getDate()-1);
+  return { ps, pe, mode:'anniversary' };
+}
+
+// refDate：'YYYY-MM-DD'，省略則用今天
+function calcPeriodBalance(refDate){
+  const d    = getData();
+  const dh   = d.dailyHours || 8;
   const list = d.periodLeaves || [];
-  const now = new Date();
-  const year  = ym ? Number(ym.slice(0,4)) : now.getFullYear();
-  const month = ym ? Number(ym.slice(5,7)) : (now.getMonth()+1);
+  const ref  = refDate ? new Date(String(refDate).slice(0,10)+'T00:00:00') : new Date();
+  ref.setHours(0,0,0,0);
+
+  const w     = getLeaveWindow(refDate);
+  const month = ref.getMonth()+1;
+  const ymKey = ref.getFullYear()+'-'+String(month).padStart(2,'0');
 
   let usedYear = 0, usedMonth = 0;
   list.forEach(function(l){
     if(!l.date) return;
-    const y = Number(String(l.date).slice(0,4));
-    const m = Number(String(l.date).slice(5,7));
-    const h = parseFloat(l.hours)||0;
-    if(y === year){
-      usedYear += h;
-      if(m === month) usedMonth += h;
-    }
+    const ds = String(l.date).slice(0,10);
+    const ld = new Date(ds+'T00:00:00');
+    const h  = parseFloat(l.hours)||0;
+    if(isNaN(ld)) return;
+    if(ld >= w.ps && ld <= w.pe) usedYear += h;   // 年度額度：依制度窗口
+    if(ds.slice(0,7) === ymKey)  usedMonth += h;  // 每月 1 日上限：仍依曆月
   });
 
   const monthQuota = PERIOD_MONTHLY_DAYS * dh;
   const freeDays   = periodFreeDays();
   const freeQuota  = freeDays * dh;
+  const fpDays     = fullPayDays();
+  const fpQuota    = fpDays * dh;
   return {
-    year, month, dailyHours: dh, freeDays,
+    year: ref.getFullYear(), month, dailyHours: dh, freeDays,
+    periodStart: w.ps, periodEnd: w.pe, mode: w.mode,
     usedMonth, usedYear,
     monthQuota,  monthRemain: Math.max(0, monthQuota - usedMonth),
     freeQuota,   freeRemain : Math.max(0, freeQuota  - usedYear),
-    sickHours  : Math.max(0, usedYear - freeQuota)   // 超過 3 日，併入病假的部分
+    sickHours  : Math.max(0, usedYear - freeQuota),  // 超過額度、併入病假的部分
+    // 全薪額度（生理假＋病假合併；本系統只記生理假）
+    fpDays, fpQuota,
+    fpUsed     : Math.min(usedYear, fpQuota),
+    fpRemain   : fpDays > 0 ? Math.max(0, fpQuota - usedYear) : 0,
+    halfPay    : fpDays > 0 ? Math.max(0, usedYear - fpQuota) : usedYear,
+    fpPct      : fpQuota > 0 ? Math.min(100, (usedYear / fpQuota) * 100) : 0
   };
 }
 
@@ -661,13 +719,23 @@ function renderPeriodSummary(){
   if(!el) return;
   const p=calcPeriodBalance();
   const dh=p.dailyHours;
+  const fpOver = p.halfPay > 0;
   el.innerHTML=`
-    <div class="year-row"><span class="label">${p.month} 月可用</span><span class="value" style="color:var(--p2)">${fmtDH(p.monthRemain,dh)}${p.monthRemain===0?'（本月已用完）':''}</span></div>
-    <div class="year-row"><span class="label">本月已用</span><span class="value">${fmtDH(p.usedMonth,dh)}</span></div>
-    <div class="year-row"><span class="label">${p.year} 年不併病假剩餘</span><span class="value" style="color:var(--p2)">${fmtDH(p.freeRemain,dh)} / ${p.freeDays} 天</span></div>
-    <div class="year-row"><span class="label">全年已用</span><span class="value">${fmtDH(p.usedYear,dh)}</span></div>
+    ${p.fpDays>0?`
+    <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--sub);margin-bottom:4px">💰 全薪額度（${p.fpDays} 天）</div>
+    <div class="paybar"><i class="${fpOver?'over':''}" style="width:${p.fpPct.toFixed(1)}%"></i></div>
+    <div class="year-row" style="border-bottom:none;padding-top:4px">
+      <span class="label">${fpOver?'已超出，超出部分半薪':'還可請（全薪）'}</span>
+      <span class="value" style="color:${fpOver?'#cc3355':'var(--p2)'}">${fpOver?fmtDH(p.halfPay,dh):fmtDH(p.fpRemain,dh)+'（'+p.fpRemain+' 小時）'}</span>
+    </div>
+    <div style="height:1px;background:rgba(255,166,251,.2);margin:6px 0 2px"></div>`:''}
+    <div class="year-row"><span class="label">${p.month} 月可用</span><span class="value" style="color:var(--p2)">${p.monthRemain} 小時${p.monthRemain===0?'（已用完）':''}</span></div>
+    <div class="year-row"><span class="label">本月已用</span><span class="value">${p.usedMonth} / ${p.monthQuota} 小時</span></div>
+    <div class="year-row"><span class="label">本年度已用</span><span class="value">${fmtDH(p.usedYear,dh)}（${p.usedYear} 小時）</span></div>
+    <div class="year-row"><span class="label">不併入病假剩餘</span><span class="value">${fmtDH(p.freeRemain,dh)} / ${p.freeDays} 天</span></div>
     ${p.sickHours>0?`<div class="year-row"><span class="label">已併入病假</span><span class="value" style="color:#cc3355">${fmtDH(p.sickHours,dh)}</span></div>`:''}
-    <div class="warn-note">生理假每月 1 日，全年 ${p.freeDays} 天不併入病假（薪資減半）${p.freeDays>PERIOD_FREE_DAYS_LEGAL?'（貴公司優於法令，法定為 '+PERIOD_FREE_DAYS_LEGAL+' 天）':''}；超過的部分併入病假計算，不另扣特休。</div>`;
+    <div class="year-info" style="margin-top:10px">年度區間：${formatDate(p.periodStart)} ～ ${formatDate(p.periodEnd)}${p.mode==='anniversary'?'（週年制，同特休）':'（曆年制）'}</div>
+    <div class="warn-note">每月可請 1 日。本年度前 ${p.freeDays} 天不併入病假，超過的部分併入病假計算（不扣特休）。${p.fpDays>0?`生理假與病假合併 ${p.fpDays} 天內薪資照給，超過給付半薪 — 本系統只記生理假，另有病假請自行併計。`:''}</div>`;
 }
 
 // 切換假別時調整表單
@@ -677,13 +745,17 @@ function onLeaveKindChange(){
   const rowEnd=document.getElementById('row-end-date');
   const hint=document.getElementById('period-hint');
   if(rowEnd) rowEnd.style.display = (kind==='period') ? 'none' : '';
+  const hrEl=document.getElementById('leave-hours');
+  const lbl=document.getElementById('hours-label');
+  if(lbl) lbl.textContent = (kind==='period') ? '請假時數（可拆小時請）' : '請假時數（最少 0.5 小時）';
+  if(hrEl && kind==='period' && !hrEl.dataset.touched) hrEl.value='4';
   if(hint){
     if(kind==='period'){
       const p=calcPeriodBalance();
       hint.style.display='';
       hint.innerHTML = p.monthRemain>0
-        ? `🌸 ${p.month} 月還可請 ${fmtDH(p.monthRemain,p.dailyHours)}；今年不併病假額度剩 ${fmtDH(p.freeRemain,p.dailyHours)}。生理假僅限單日。`
-        : `⚠️ ${p.month} 月的生理假（1 日）已用完，再請會超出法定每月上限。`;
+        ? `🌸 ${p.month} 月還可請 <b>${p.monthRemain} 小時</b>（每月上限 1 日 ＝ ${p.monthQuota} 小時，本月已用 ${p.usedMonth} 小時）${p.fpDays>0?`<br>💰 全薪額度還剩 <b>${p.fpRemain} 小時</b>（${fmtDH(p.fpRemain,p.dailyHours)}）`:''}`
+        : `⚠️ ${p.month} 月的生理假已用滿 ${p.monthQuota} 小時（1 日），再請會超出每月上限。`;
     }else{
       hint.style.display='none';
     }
@@ -696,7 +768,9 @@ function renderLeaveRules(){
   if(Number(getData().enablePeriod)){
     const fd=periodFreeDays();
     html+=`<div class="year-row" style="margin-top:6px"><span class="label">🌸 生理假・每月</span><span class="value">1 日</span></div>`
-        + `<div class="year-row"><span class="label">🌸 生理假・全年不併病假</span><span class="value">${fd} 日</span></div>`;
+        + `<div class="year-row"><span class="label">🌸 生理假・不併入病假</span><span class="value">${fd} 日</span></div>`
+        + (fullPayDays()>0?`<div class="year-row"><span class="label">💰 全薪上限（含病假）</span><span class="value">${fullPayDays()} 日</span></div>`:'')
+        + `<div class="year-row"><span class="label">🌸 年度起算</span><span class="value">${getData().leaveType==='calendar'?'曆年制':'週年制（同特休）'}</span></div>`;
   }
   document.getElementById('leave-rules').innerHTML=html;
 }
@@ -712,6 +786,8 @@ function fillSettingsForm(){
   if(epEl) epEl.value=String(Number(d.enablePeriod)||0);
   const pfEl = document.getElementById('s-period-free');
   if(pfEl) pfEl.value=String(Number(d.periodFreeDays)||3);
+  const fpEl = document.getElementById('s-fullpay-days');
+  if(fpEl) fpEl.value=String(d.fullPayDays===undefined?7:Number(d.fullPayDays));
   togglePeriodSetting();
 }
 
@@ -868,18 +944,41 @@ async function addPeriodLeave(){
 
   const d  = getData();
   const dh = d.dailyHours || 8;
-  const ym = date.slice(0,7);
-  const p  = calcPeriodBalance(ym);
+  const p  = calcPeriodBalance(date);
 
-  // 每月 1 日上限檢查
+  // 本月已請過的紀錄（給提醒用）
+  const ymKey = date.slice(0,7);
+  const sameMonth = (d.periodLeaves||[])
+    .filter(l => String(l.date||'').slice(0,7) === ymKey)
+    .sort((a,b) => new Date(a.date) - new Date(b.date));
+  const listTxt = sameMonth
+    .map(l => `　・${Number(String(l.date).slice(8,10))} 號　${l.hours} 小時${l.note?'（'+l.note+'）':''}`)
+    .join('\n');
+  const daysTxt = sameMonth.map(l => Number(String(l.date).slice(8,10))+' 號').join('、');
+
   if(p.usedMonth + hours > p.monthQuota + 0.001){
-    const over = (p.usedMonth + hours) - p.monthQuota;
-    if(!confirm(`${p.month} 月的生理假已用 ${fmtDH(p.usedMonth,dh)}，再加這筆會超出法定每月 1 日上限 ${fmtDH(over,dh)}。\n\n仍要新增嗎？`)) return;
+    // 會超出每月 1 日上限
+    const over = Math.round(((p.usedMonth + hours) - p.monthQuota) * 10) / 10;
+    if(!confirm(
+      `⚠️ ${p.month} 月生理假將超出每月上限\n\n`+
+      `本月的 ${daysTxt} 已經請過，共 ${p.usedMonth} 小時：\n${listTxt}\n\n`+
+      `每月上限 ${p.monthQuota} 小時（1 日），再加這筆 ${hours} 小時會超出 ${over} 小時。\n\n`+
+      `仍要新增嗎？`)) return;
+  } else if (sameMonth.length > 0) {
+    // 額度內，但本月已請過 → 一律提醒
+    const after = Math.round((p.usedMonth + hours) * 10) / 10;
+    const left  = Math.round((p.monthQuota - after) * 10) / 10;
+    if(!confirm(
+      `🌸 ${p.month} 月的 ${daysTxt} 已經請過生理假\n\n`+
+      `${listTxt}\n\n`+
+      `本月已用 ${p.usedMonth} / ${p.monthQuota} 小時。\n`+
+      `加上這筆 ${hours} 小時後為 ${after} 小時，本月還剩 ${left} 小時。\n\n`+
+      `仍要新增嗎？`)) return;
   }
-  // 全年不併病假額度提醒
-  if(p.usedYear + hours > p.freeQuota + 0.001){
-    const intoSick = (p.usedYear + hours) - p.freeQuota;
-    if(!confirm(`這筆將使 ${p.year} 年生理假超過 ${p.freeDays} 天，超出的 ${fmtDH(intoSick,dh)} 會併入病假計算。\n\n仍要新增嗎？`)) return;
+  // 全薪額度提醒（最重要：超過就變半薪）
+  if(p.fpDays > 0 && p.usedYear + hours > p.fpQuota + 0.001){
+    const half = (p.usedYear + hours) - p.fpQuota;
+    if(!confirm(`⚠️ 這筆會超出全薪額度 ${p.fpDays} 天，超出的 ${fmtDH(half,dh)} 只給付半薪。\n\n（本年度 ${formatDate(p.periodStart)}～${formatDate(p.periodEnd)}，已用 ${fmtDH(p.usedYear,dh)}）\n\n仍要新增嗎？`)) return;
   }
 
   d.periodLeaves = d.periodLeaves || [];
@@ -948,6 +1047,8 @@ async function saveSettings(){
   if(typeEl) d.leaveType=typeEl.value;
   if(epEl) d.enablePeriod=Number(epEl.value)||0;
   if(pfEl) d.periodFreeDays=Number(pfEl.value)||3;
+  const fpEl=document.getElementById('s-fullpay-days');
+  if(fpEl) d.fullPayDays=Number(fpEl.value);
   _data=d;saveLocalBackup(d);render();
   showLoading('儲存設定中…');setSyncBadge('busy','⏳ 儲存中');
   try{await saveSettingsToSheets(d);setSyncBadge('ok','✅ 已同步');updateLastSyncTime();showToast('✅ 設定已儲存');}
@@ -980,7 +1081,10 @@ function switchTab(tab){
 function togglePeriodSetting(){
   const epEl=document.getElementById('s-enable-period');
   const row=document.getElementById('row-period-free');
-  if(row && epEl) row.style.display = (epEl.value==='1') ? '' : 'none';
+  const row2=document.getElementById('row-fullpay');
+  const show = (epEl && epEl.value==='1') ? '' : 'none';
+  if(row)  row.style.display  = show;
+  if(row2) row2.style.display = show;
 }
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
 function formatDate(d){if(!d||isNaN(new Date(d)))return'—';const dt=new Date(d);return dt.getFullYear()+'/'+(dt.getMonth()+1).toString().padStart(2,'0')+'/'+dt.getDate().toString().padStart(2,'0');}

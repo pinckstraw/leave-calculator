@@ -210,19 +210,17 @@
       <input type="text" class="form-input" id="leave-note" placeholder="例：家庭聚會、個人事務...">
     </div>
     <div id="period-hint" class="warn-note" style="display:none"></div>
-    <button class="btn btn-primary" onclick="addLeave()" style="margin-top:12px">確認新增</button>
+    <div id="edit-banner" class="warn-note" style="display:none;background:rgba(255,234,108,.25);border-color:var(--y1);color:#5a3a00;font-weight:600"></div>
+    <button class="btn btn-primary" id="submit-btn" onclick="addLeave()" style="margin-top:12px">確認新增</button>
+    <button class="btn" id="cancel-edit-btn" onclick="cancelEdit()" style="display:none;margin-top:8px;background:#f3eef5;color:var(--sub)">取消編輯</button>
   </div>
 </div>
 
 <!-- RECORDS -->
 <div class="section" id="sec-records">
   <div class="card">
-    <div class="card-title"><span>📂</span> 特休紀錄</div>
+    <div class="card-title"><span>📂</span> 所有請假紀錄</div>
     <div id="all-records"></div>
-  </div>
-  <div class="card" id="card-period-records" style="display:none">
-    <div class="card-title"><span>🌸</span> 生理假紀錄</div>
-    <div id="period-records"></div>
   </div>
 
 </div>
@@ -594,7 +592,7 @@ function getLeaveWindow(refDate){
 }
 
 // refDate：'YYYY-MM-DD'，省略則用今天
-function calcPeriodBalance(refDate){
+function calcPeriodBalance(refDate, excludeId){
   const d    = getData();
   const dh   = d.dailyHours || 8;
   const list = d.periodLeaves || [];
@@ -608,6 +606,7 @@ function calcPeriodBalance(refDate){
   let usedYear = 0, usedMonth = 0;
   list.forEach(function(l){
     if(!l.date) return;
+    if(excludeId !== undefined && String(l.id) === String(excludeId)) return;
     const ds = String(l.date).slice(0,10);
     const ld = new Date(ds+'T00:00:00');
     const h  = parseFloat(l.hours)||0;
@@ -678,7 +677,7 @@ function render(){
   }
   const on = !!Number(d.enablePeriod);
   // 依開關顯示／隱藏所有生理假相關區塊
-  ['card-period-summary','card-period-records','row-leave-type'].forEach(function(id){
+  ['card-period-summary','row-leave-type'].forEach(function(id){
     const el=document.getElementById(id);
     if(el) el.style.display = on ? '' : 'none';
   });
@@ -686,31 +685,36 @@ function render(){
   onLeaveKindChange();
   if(on) renderPeriodSummary();
 
-  const sorted=[...d.leaves].sort((a,b)=>new Date(b.date)-new Date(a.date));
-  renderRecordList(document.getElementById('recent-records'),sorted.slice(0,5),true,'annual');
-  renderRecordList(document.getElementById('all-records'),sorted,false,'annual');
-  if(on){
-    const ps=[...(d.periodLeaves||[])].sort((a,b)=>new Date(b.date)-new Date(a.date));
-    renderRecordList(document.getElementById('period-records'),ps,false,'period');
-  }
+  // 所有假別合併，單純依日期由新到舊排序
+  const merged=[
+    ...(d.leaves||[]).map(l=>Object.assign({},l,{_kind:'annual'})),
+    ...(on ? (d.periodLeaves||[]).map(l=>Object.assign({},l,{_kind:'period'})) : [])
+  ].sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+  renderRecordList(document.getElementById('recent-records'),merged.slice(0,5),true);
+  renderRecordList(document.getElementById('all-records'),merged,false);
   renderLeaveRules();
 }
 
 function renderRecordList(container,records,isRecent,kind){
   if(!container) return;
-  kind = kind || 'annual';
   if(!records.length){container.innerHTML='<div class="empty-state"><div>🌸</div>目前沒有請假紀錄</div>';return;}
-  const showBadge = isRecent && Number(getData().enablePeriod);
-  const delFn = (kind==='period') ? 'deletePeriodLeave' : 'deleteLeave';
-  container.innerHTML=records.map(l=>`
+  const showBadge = Number(getData().enablePeriod);
+  container.innerHTML=records.map(function(l){
+    const k = l._kind || kind || 'annual';       // 每筆可自帶假別
+    const isP = (k === 'period');
+    const delFn = isP ? 'deletePeriodLeave' : 'deleteLeave';
+    return `
     <div class="record-item">
-      <div class="record-dot"${kind==='period'?' style="background:linear-gradient(135deg,#FF61F8,#b3209f)"':''}></div>
+      <div class="record-dot"${isP?' style="background:linear-gradient(135deg,#FF61F8,#b3209f)"':''}></div>
       <div class="record-date">${l.date}</div>
-      ${showBadge?`<span class="lt-badge ${kind}">${kind==='period'?'生理':'特休'}</span>`:''}
+      ${showBadge?`<span class="lt-badge ${k}">${isP?'生理':'特休'}</span>`:''}
       <div class="record-note">${l.note||'—'}</div>
       <div class="record-hours">${l.hours}h</div>
+      ${!isRecent?`<button onclick="startEdit(${l.id},'${k}')" style="font-size:10px;color:var(--p2);border:none;background:none;cursor:pointer;font-family:'Noto Sans TC',sans-serif;flex-shrink:0;font-weight:600">編輯</button>`:''}
       ${!isRecent?`<button onclick="${delFn}(${l.id})" style="font-size:10px;color:#cc3355;border:none;background:none;cursor:pointer;font-family:'Noto Sans TC',sans-serif;flex-shrink:0;">刪除</button>`:''}
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // 首頁生理假摘要卡
@@ -872,8 +876,109 @@ function readLoaFromForm(){
   })).filter(p=>p.start||p.end);
 }
 
+// ── 編輯模式 ──────────────────────────────────────────────────────────────────
+let _editing = null;   // {id, kind}
+
+function findRecord(id, kind){
+  const d = getData();
+  const arr = (kind === 'period') ? (d.periodLeaves||[]) : (d.leaves||[]);
+  return arr.find(l => String(l.id) === String(id)) || null;
+}
+
+function startEdit(id, kind){
+  const r = findRecord(id, kind);
+  if(!r){ showToast('找不到這筆紀錄'); return; }
+  _editing = { id: r.id, kind: kind };
+
+  switchTab('add');
+  const kEl = document.getElementById('leave-kind');
+  if(kEl) kEl.value = kind;
+  document.getElementById('leave-start-date').value = String(r.date).slice(0,10);
+  document.getElementById('leave-end-date').value   = '';
+  const hEl = document.getElementById('leave-hours');
+  if(hEl){ hEl.value = String(r.hours); hEl.dataset.touched = '1'; }
+  document.getElementById('leave-note').value = r.note || '';
+
+  onLeaveKindChange();
+  // 編輯時一律單筆，隱藏結束日期
+  const rowEnd = document.getElementById('row-end-date');
+  if(rowEnd) rowEnd.style.display = 'none';
+
+  const banner = document.getElementById('edit-banner');
+  if(banner){
+    banner.style.display = '';
+    banner.textContent = `✏️ 正在編輯 ${String(r.date).slice(0,10)} 的${kind==='period'?'生理假':'特休'}（${r.hours} 小時）`;
+  }
+  const btn = document.getElementById('submit-btn');
+  if(btn) btn.textContent = '儲存修改';
+  const cb = document.getElementById('cancel-edit-btn');
+  if(cb) cb.style.display = '';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+function cancelEdit(silent){
+  _editing = null;
+  const banner=document.getElementById('edit-banner'); if(banner) banner.style.display='none';
+  const btn=document.getElementById('submit-btn');     if(btn) btn.textContent='確認新增';
+  const cb=document.getElementById('cancel-edit-btn'); if(cb) cb.style.display='none';
+  const hEl=document.getElementById('leave-hours');    if(hEl) delete hEl.dataset.touched;
+  document.getElementById('leave-start-date').value = todayStr();
+  document.getElementById('leave-end-date').value   = '';
+  document.getElementById('leave-note').value       = '';
+  onLeaveKindChange();
+  if(!silent) showToast('已取消編輯');
+}
+
+async function saveEdit(){
+  const date  = document.getElementById('leave-start-date').value;
+  const hours = parseFloat(document.getElementById('leave-hours').value);
+  const note  = document.getElementById('leave-note').value.trim();
+  const kEl   = document.getElementById('leave-kind');
+  const newKind = kEl ? kEl.value : 'annual';
+  if(!date){ showToast('請選擇日期'); return; }
+
+  const d = getData();
+  const oldKind = _editing.kind, id = _editing.id;
+
+  // 生理假：檢查改完後會不會超出每月上限（排除自己這筆）
+  if(newKind === 'period'){
+    const p = calcPeriodBalance(date, id);
+    if(p.usedMonth + hours > p.monthQuota + 0.001){
+      const over = Math.round(((p.usedMonth + hours) - p.monthQuota) * 10) / 10;
+      if(!confirm(`⚠️ 改成這樣會讓 ${p.month} 月超出每月上限 ${p.monthQuota} 小時，超出 ${over} 小時。\n\n仍要儲存嗎？`)) return;
+    }
+  }
+
+  // 從原陣列移除
+  if(oldKind === 'period') d.periodLeaves = (d.periodLeaves||[]).filter(l=>String(l.id)!==String(id));
+  else                     d.leaves       = (d.leaves||[]).filter(l=>String(l.id)!==String(id));
+  // 放進新陣列（沿用原 id）
+  const rec = { id, date, hours, note };
+  if(newKind === 'period'){ d.periodLeaves = d.periodLeaves||[]; d.periodLeaves.push(rec); }
+  else                    { d.leaves = d.leaves||[];             d.leaves.push(rec); }
+
+  _data = d; saveLocalBackup(d);
+  const changedKind = (oldKind !== newKind);
+  cancelEdit(true);
+  render();
+  switchTab('records');
+
+  showLoading('儲存修改…'); setSyncBadge('busy','⏳ 儲存中');
+  try{
+    // 假別有變動時，兩邊都要寫回
+    if(changedKind || newKind==='annual') await saveLeavesToSheets(d.leaves||[]);
+    if(changedKind || newKind==='period') await savePeriodLeavesToSheets(d.periodLeaves||[]);
+    setSyncBadge('ok','✅ 已同步'); updateLastSyncTime();
+    showToast('✅ 已儲存修改');
+  }catch(e){
+    setSyncBadge('err','⚠️ 同步失敗');
+    showToast(errMsg(e,'⚠️ 本機已修改，雲端同步失敗'));
+  }finally{ hideLoading(); }
+}
+
 // ── ACTIONS ───────────────────────────────────────────────────────────────────
 async function addLeave(){
+  if(_editing) return saveEdit();
   const kindEl = document.getElementById('leave-kind');
   if(kindEl && kindEl.value === 'period'){ return addPeriodLeave(); }
   const sDate = document.getElementById('leave-start-date').value;
